@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { UserProfile, UserRole } from '../types';
+import { supabase } from '../lib/supabase';
 
 interface AuthContextType {
   user: UserProfile | null;
@@ -52,9 +53,69 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     fetchCurrentUser();
+
+    // 3. Listen to Supabase Auth state changes if Supabase is initialized
+    if (supabase) {
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session?.user) {
+          const email = session.user.email || '';
+          const isOwner = email.toLowerCase() === 'advesapp@gmail.com';
+          const profile: UserProfile = {
+            id: session.user.id,
+            email,
+            full_name: session.user.user_metadata?.full_name || session.user.user_metadata?.name || email.split('@')[0],
+            avatar_url: session.user.user_metadata?.avatar_url || session.user.user_metadata?.picture,
+            role: isOwner ? 'owner' : 'customer',
+            status: 'active',
+            created_at: session.user.created_at || new Date().toISOString()
+          };
+          setUser(profile);
+          localStorage.setItem('zarnix_user', JSON.stringify(profile));
+        }
+      });
+
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (session?.user) {
+          const email = session.user.email || '';
+          const isOwner = email.toLowerCase() === 'advesapp@gmail.com';
+          const profile: UserProfile = {
+            id: session.user.id,
+            email,
+            full_name: session.user.user_metadata?.full_name || session.user.user_metadata?.name || email.split('@')[0],
+            avatar_url: session.user.user_metadata?.avatar_url || session.user.user_metadata?.picture,
+            role: isOwner ? 'owner' : 'customer',
+            status: 'active',
+            created_at: session.user.created_at || new Date().toISOString()
+          };
+          setUser(profile);
+          localStorage.setItem('zarnix_user', JSON.stringify(profile));
+        }
+      });
+
+      return () => {
+        subscription.unsubscribe();
+      };
+    }
   }, []);
 
   const loginWithGoogle = async (profile: { email: string; full_name: string; avatar_url?: string }) => {
+    // If Supabase is active, trigger real Google OAuth popup / redirect!
+    if (supabase) {
+      try {
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider: 'google',
+          options: {
+            redirectTo: window.location.origin
+          }
+        });
+        if (!error) {
+          return null as any;
+        }
+      } catch (err) {
+        console.warn('Supabase OAuth trigger error, falling back to local session', err);
+      }
+    }
+
     const isOwner = profile.email.toLowerCase() === 'advesapp@gmail.com';
     let authenticatedUser: UserProfile | null = null;
 
