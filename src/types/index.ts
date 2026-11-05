@@ -1,10 +1,41 @@
 export type UserRole = 
   | 'owner' 
+  | 'super_admin'
   | 'admin' 
+  | 'moderator'
+  | 'support'
+  | 'editor'
   | 'product_manager' 
   | 'payment_manager' 
   | 'support_manager' 
-  | 'customer';
+  | 'customer'
+  | string;
+
+export type PermissionKey =
+  | 'manage_products'
+  | 'manage_orders'
+  | 'approve_payments'
+  | 'manage_downloads'
+  | 'manage_services'
+  | 'manage_coupons'
+  | 'manage_banks'
+  | 'manage_roles_permissions'
+  | 'manage_users'
+  | 'view_financial_analytics'
+  | 'manage_settings'
+  | 'view_audit_logs';
+
+export interface RoleItem {
+  id: string;
+  name: string;
+  name_ar: string;
+  description: string;
+  color: string;
+  is_system: boolean;
+  permissions: PermissionKey[];
+  user_count?: number;
+  created_at: string;
+}
 
 export type PaymentStatus = 
   | 'unsubmitted' 
@@ -139,6 +170,10 @@ export interface Product {
   license_type: 'personal' | 'commercial' | 'single_project' | 'non_exclusive' | 'custom';
   status: 'published' | 'draft' | 'archived';
   is_featured: boolean;
+  gallery_images?: string[];
+  demo_url?: string;
+  download_file_url?: string;
+  code_repository?: string;
   options?: ProductOption[];
   files?: ProductFile[];
   versions?: ProductVersion[];

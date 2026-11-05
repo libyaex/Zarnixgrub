@@ -102,10 +102,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // If Supabase is active, trigger real Google OAuth popup / redirect!
     if (supabase) {
       try {
+        const redirectUrl = window.location.origin.includes('localhost')
+          ? 'https://zarnixgrub.vercel.app'
+          : window.location.origin;
+
         const { error } = await supabase.auth.signInWithOAuth({
           provider: 'google',
           options: {
-            redirectTo: window.location.origin
+            redirectTo: redirectUrl
           }
         });
         if (!error) {

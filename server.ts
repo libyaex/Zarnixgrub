@@ -68,19 +68,119 @@ interface DBUser {
   full_name: string;
   phone: string;
   avatar_url?: string;
-  role: 'owner' | 'admin' | 'product_manager' | 'payment_manager' | 'support_manager' | 'customer';
+  role: string;
   status: 'active' | 'suspended';
   created_at: string;
 }
+
+export interface RoleItem {
+  id: string;
+  name: string;
+  name_ar: string;
+  description: string;
+  color: string;
+  is_system: boolean;
+  permissions: string[];
+  created_at: string;
+}
+
+const systemRoles: RoleItem[] = [
+  {
+    id: 'super_admin',
+    name: 'Super Admin',
+    name_ar: 'المدير الأعلى (Super Admin)',
+    description: 'صلاحيات غير محدودة وتحكم كامل ومطلق في كافة الموارد والبيانات والإعدادات وإدارة الأدوار',
+    color: '#a855f7',
+    is_system: true,
+    permissions: [
+      'manage_products',
+      'manage_orders',
+      'approve_payments',
+      'manage_downloads',
+      'manage_services',
+      'manage_coupons',
+      'manage_banks',
+      'manage_roles_permissions',
+      'manage_users',
+      'view_financial_analytics',
+      'manage_settings',
+      'view_audit_logs'
+    ],
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 'admin',
+    name: 'Admin',
+    name_ar: 'مدير النظام (Admin)',
+    description: 'إدارة شاملة للمتجر والطلبات والمدفوعات والمحتوى الرقمي والإحصائيات وتعيين الحسابات',
+    color: '#3b82f6',
+    is_system: true,
+    permissions: [
+      'manage_products',
+      'manage_orders',
+      'approve_payments',
+      'manage_downloads',
+      'manage_services',
+      'manage_coupons',
+      'manage_banks',
+      'manage_users',
+      'view_financial_analytics',
+      'manage_settings',
+      'view_audit_logs'
+    ],
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 'moderator',
+    name: 'Moderator',
+    name_ar: 'مشرف المحتوى (Moderator)',
+    description: 'إدارة وتدقيق ومراجعة المنتجات البرمجية والتصنيفات والملفات الرقمية وتراخيص التوزيع',
+    color: '#10b981',
+    is_system: true,
+    permissions: [
+      'manage_products',
+      'manage_downloads'
+    ],
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 'support',
+    name: 'Support',
+    name_ar: 'موظف الدعم الفني (Support)',
+    description: 'متابعة تنفيذ خدمات التركيب والدعم الفني ومساعدة العملاء وتمديد فترات وتراخيص التحميل',
+    color: '#f59e0b',
+    is_system: true,
+    permissions: [
+      'manage_orders',
+      'manage_services',
+      'manage_downloads'
+    ],
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 'editor',
+    name: 'Editor',
+    name_ar: 'محرر برمجيات (Editor)',
+    description: 'إضافة وتعديل بيانات المنتجات ودراسات الجدوى والمواصفات التقنية ونسخ التوثيق',
+    color: '#06b6d4',
+    is_system: true,
+    permissions: [
+      'manage_products'
+    ],
+    created_at: new Date().toISOString()
+  }
+];
+
+let allRoles: RoleItem[] = [...systemRoles];
 
 const users: DBUser[] = [
   {
     id: 'user_owner_01',
     email: 'advesapp@gmail.com',
     full_name: 'نزار الهواري',
-    phone: '',
+    phone: '091-3004448',
     avatar_url: '',
-    role: 'owner',
+    role: 'super_admin',
     status: 'active',
     created_at: new Date().toISOString()
   }
@@ -192,27 +292,38 @@ function getAuthUser(req: Request): DBUser | null {
 }
 
 // RBAC Middleware to protect mutating administration endpoints
-function requireAdminRole(allowedRoles: string[] = ['owner', 'admin']) {
+function requireAdminRole(allowedRolesOrPermissions: string[] = ['super_admin', 'admin', 'owner']) {
   return (req: Request, res: Response, next: NextFunction) => {
     const user = getAuthUser(req);
     if (!user) {
       return res.status(401).json({ error: 'يرجى تسجيل الدخول أولاً' });
     }
-    if (!allowedRoles.includes(user.role)) {
-      // Audit log the blocked unauthorized attempt
-      auditLogs.unshift({
-        id: `audit_${Date.now()}`,
-        admin_id: user.id,
-        admin_name: user.full_name,
-        action: 'UNAUTHORIZED_ACCESS_BLOCKED',
-        entity_type: 'SECURITY_ALERT',
-        entity_id: req.originalUrl,
-        details: { ip: req.ip || '127.0.0.1', method: req.method, user_role: user.role, attempt: req.path },
-        created_at: new Date().toISOString()
-      });
-      return res.status(403).json({ error: 'عذراً، لا تمتلك الصلاحية الكافية للوصول إلى هذا المورد الإداري' });
+    // Super admin, owner, or primary admin email always passes with full unrestricted authority
+    if (user.role === 'super_admin' || user.role === 'owner' || user.email.toLowerCase() === 'advesapp@gmail.com') {
+      return next();
     }
-    next();
+    // Check if user role matches allowed roles directly
+    if (allowedRolesOrPermissions.includes(user.role)) {
+      return next();
+    }
+    // Check if any role permissions match the requested keys
+    const userRoleObj = allRoles.find(r => r.id === user.role);
+    if (userRoleObj && allowedRolesOrPermissions.some(p => userRoleObj.permissions.includes(p as any))) {
+      return next();
+    }
+
+    // Audit log the blocked unauthorized attempt
+    auditLogs.unshift({
+      id: `audit_${Date.now()}`,
+      admin_id: user.id,
+      admin_name: user.full_name,
+      action: 'UNAUTHORIZED_ACCESS_BLOCKED',
+      entity_type: 'SECURITY_ALERT',
+      entity_id: req.originalUrl,
+      details: { ip: req.ip || '127.0.0.1', method: req.method, user_role: user.role, attempt: req.path },
+      created_at: new Date().toISOString()
+    });
+    return res.status(403).json({ error: 'عذراً، لا تمتلك الصلاحية الكافية للوصول إلى هذا المورد الإداري' });
   };
 }
 
@@ -221,7 +332,7 @@ app.get('/api/auth/me', (req, res) => {
   const user = getAuthUser(req);
   res.json({
     user,
-    availableRoles: ['owner', 'admin', 'product_manager', 'payment_manager', 'support_manager', 'customer']
+    availableRoles: allRoles.map(r => r.id)
   });
 });
 
@@ -234,21 +345,24 @@ app.post('/api/auth/google', rateLimit('auth', 60, 60000), (req, res) => {
   // Find existing user or register
   let user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
   if (!user) {
-    // If the email is the store owner's email, give owner role; otherwise customer
+    // If the email is the store owner's email, give super_admin role; otherwise customer
     const isOwner = email.toLowerCase() === 'advesapp@gmail.com' || email.toLowerCase() === 'nizar.owner@nizardigital.ly';
     user = {
       id: `google_${Date.now()}`,
       email: email.toLowerCase(),
       full_name: full_name || 'مستخدم Google',
-      phone: '0912345678',
+      phone: '091-3004448',
       avatar_url: avatar_url || '',
-      role: isOwner ? 'owner' : 'customer',
+      role: isOwner ? 'super_admin' : 'customer',
       status: 'active',
       created_at: new Date().toISOString()
     };
     users.push(user);
-  } else if (avatar_url) {
-    user.avatar_url = avatar_url;
+  } else {
+    if (avatar_url) user.avatar_url = avatar_url;
+    if (email.toLowerCase() === 'advesapp@gmail.com') {
+      user.role = 'super_admin';
+    }
   }
 
   currentUser = user;
@@ -261,6 +375,188 @@ app.post('/api/auth/google', rateLimit('auth', 60, 60000), (req, res) => {
   });
 
   res.json({ success: true, user, token: sessionToken });
+});
+
+// Roles & Permissions Management Endpoints (Super Admin & Admin)
+app.get('/api/admin/roles', (req, res) => {
+  const rolesWithCount = allRoles.map(r => ({
+    ...r,
+    user_count: users.filter(u => u.role === r.id).length
+  }));
+  res.json(rolesWithCount);
+});
+
+app.post('/api/admin/roles', requireAdminRole(['super_admin', 'owner', 'manage_roles_permissions']), (req, res) => {
+  const { name, name_ar, description, color, permissions } = req.body;
+  if (!name || !name_ar) {
+    return res.status(400).json({ error: 'اسم الدور بالإنجليزية والعربية مطلوب' });
+  }
+
+  const roleId = `custom_${name.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${Date.now()}`;
+  const newRole: RoleItem = {
+    id: roleId,
+    name,
+    name_ar,
+    description: description || '',
+    color: color || '#8b5cf6',
+    is_system: false,
+    permissions: Array.isArray(permissions) ? permissions : [],
+    created_at: new Date().toISOString()
+  };
+
+  allRoles.push(newRole);
+
+  auditLogs.unshift({
+    id: `audit_${Date.now()}`,
+    admin_id: currentUser?.id || 'sys',
+    admin_name: currentUser?.full_name || 'المدير',
+    action: 'CREATE_CUSTOM_ROLE',
+    entity_type: 'ROLE',
+    entity_id: newRole.id,
+    details: { name: newRole.name_ar, permissions_count: newRole.permissions.length },
+    created_at: new Date().toISOString()
+  });
+
+  res.status(201).json(newRole);
+});
+
+app.put('/api/admin/roles/:id', requireAdminRole(['super_admin', 'owner', 'manage_roles_permissions']), (req, res) => {
+  const roleIndex = allRoles.findIndex(r => r.id === req.params.id);
+  if (roleIndex === -1) {
+    return res.status(404).json({ error: 'الدور غير موجود' });
+  }
+
+  const existing = allRoles[roleIndex];
+  const { name_ar, description, color, permissions } = req.body;
+
+  allRoles[roleIndex] = {
+    ...existing,
+    name_ar: name_ar !== undefined ? name_ar : existing.name_ar,
+    description: description !== undefined ? description : existing.description,
+    color: color !== undefined ? color : existing.color,
+    permissions: Array.isArray(permissions) ? permissions : existing.permissions
+  };
+
+  auditLogs.unshift({
+    id: `audit_${Date.now()}`,
+    admin_id: currentUser?.id || 'sys',
+    admin_name: currentUser?.full_name || 'المدير',
+    action: 'UPDATE_ROLE_PERMISSIONS',
+    entity_type: 'ROLE',
+    entity_id: existing.id,
+    details: { role_name: allRoles[roleIndex].name_ar, new_permissions: allRoles[roleIndex].permissions },
+    created_at: new Date().toISOString()
+  });
+
+  res.json(allRoles[roleIndex]);
+});
+
+app.delete('/api/admin/roles/:id', requireAdminRole(['super_admin', 'owner', 'manage_roles_permissions']), (req, res) => {
+  const roleIndex = allRoles.findIndex(r => r.id === req.params.id);
+  if (roleIndex === -1) {
+    return res.status(404).json({ error: 'الدور غير موجود' });
+  }
+
+  if (allRoles[roleIndex].is_system) {
+    return res.status(400).json({ error: 'لا يمكن حذف الأدوار القياسية الأساسية للنظام' });
+  }
+
+  const deleted = allRoles.splice(roleIndex, 1)[0];
+  
+  // Reassign any users with this deleted role to customer
+  users.forEach(u => {
+    if (u.role === deleted.id) u.role = 'customer';
+  });
+
+  res.json({ success: true, message: 'تم حذف الدور بنجاح' });
+});
+
+// Staff list & role assignment
+app.get('/api/admin/staff', requireAdminRole(['super_admin', 'admin', 'owner', 'manage_roles_permissions', 'manage_users']), (req, res) => {
+  const staffList = users.map(u => ({
+    id: u.id,
+    email: u.email,
+    full_name: u.full_name,
+    phone: u.phone,
+    avatar_url: u.avatar_url,
+    role: u.role,
+    status: u.status,
+    created_at: u.created_at
+  }));
+  res.json(staffList);
+});
+
+app.put('/api/admin/staff/:id/role', requireAdminRole(['super_admin', 'owner', 'manage_roles_permissions']), (req, res) => {
+  const targetUser = users.find(u => u.id === req.params.id);
+  if (!targetUser) {
+    return res.status(404).json({ error: 'المستخدم غير موجود' });
+  }
+
+  const { role } = req.body;
+  if (!role) {
+    return res.status(400).json({ error: 'الدور الجديد مطلوب' });
+  }
+
+  // Prevent changing owner's role
+  if (targetUser.email.toLowerCase() === 'advesapp@gmail.com' && role !== 'super_admin' && role !== 'owner') {
+    return res.status(403).json({ error: 'لا يمكن سحب صلاحيات المدير الأعلى من المالك الرئيسي للمنصة' });
+  }
+
+  const oldRole = targetUser.role;
+  targetUser.role = role;
+
+  auditLogs.unshift({
+    id: `audit_${Date.now()}`,
+    admin_id: currentUser?.id || 'sys',
+    admin_name: currentUser?.full_name || 'المدير',
+    action: 'ASSIGN_USER_ROLE',
+    entity_type: 'USER',
+    entity_id: targetUser.id,
+    details: { target_email: targetUser.email, from_role: oldRole, to_role: role },
+    created_at: new Date().toISOString()
+  });
+
+  res.json({ success: true, user: targetUser });
+});
+
+// File and Image Upload Endpoint for Cover Images and Gallery Screenshots
+app.post('/api/upload', (req, res) => {
+  try {
+    const { file_data, file_name } = req.body;
+    if (!file_data) {
+      return res.status(400).json({ error: 'بيانات الملف مطلوبة' });
+    }
+
+    if (file_data.startsWith('http://') || file_data.startsWith('https://')) {
+      return res.json({ success: true, url: file_data });
+    }
+
+    if (file_data.startsWith('data:')) {
+      const matches = file_data.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+      if (matches && matches.length === 3) {
+        const ext = matches[1].split('/')[1] || 'png';
+        const safeExt = ext.replace(/[^a-zA-Z0-9]/g, '');
+        const filename = `img_${Date.now()}_${Math.floor(Math.random() * 10000)}.${safeExt}`;
+        const uploadsDir = path.join(__dirname, 'public', 'uploads');
+        
+        try {
+          if (!fs.existsSync(uploadsDir)) {
+            fs.mkdirSync(uploadsDir, { recursive: true });
+          }
+          const buffer = Buffer.from(matches[2], 'base64');
+          fs.writeFileSync(path.join(uploadsDir, filename), buffer);
+          return res.json({ success: true, url: `/uploads/${filename}` });
+        } catch {
+          // Fallback to data URL if file system write is blocked
+          return res.json({ success: true, url: file_data });
+        }
+      }
+    }
+
+    res.json({ success: true, url: file_data });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'فشل رفع الملف' });
+  }
 });
 
 app.post('/api/auth/logout', (req, res) => {
@@ -462,6 +758,10 @@ app.post('/api/products', requireAdminRole(['owner', 'admin', 'product_manager']
     faq: Array.isArray(faq) ? faq : [],
     options: Array.isArray(options) ? options : [],
     files: Array.isArray(files) ? files : [],
+    gallery_images: Array.isArray(req.body.gallery_images) ? req.body.gallery_images : [],
+    demo_url: req.body.demo_url || '',
+    download_file_url: req.body.download_file_url || '',
+    code_repository: req.body.code_repository || '',
     created_at: new Date().toISOString()
   };
 

@@ -16,10 +16,14 @@ export const GoogleLoginPage: React.FC<GoogleLoginPageProps> = ({ onSuccess }) =
     try {
       if (supabase) {
         // Open the REAL official Google Accounts selection window!
+        const redirectUrl = window.location.origin.includes('localhost')
+          ? 'https://zarnixgrub.vercel.app'
+          : window.location.origin;
+
         const { error } = await supabase.auth.signInWithOAuth({
           provider: 'google',
           options: {
-            redirectTo: window.location.origin,
+            redirectTo: redirectUrl,
             queryParams: {
               prompt: 'select_account' // Forces Google to show all accounts on the device!
             }

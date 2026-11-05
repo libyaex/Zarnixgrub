@@ -24,6 +24,9 @@ export const ProductDetailsPage: React.FC<ProductDetailsPageProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'technical' | 'installation' | 'economic'>('overview');
   const [addedSuccess, setAddedSuccess] = useState(false);
+  const [currentImage, setCurrentImage] = useState<string>(product.main_image || '/logo.png');
+
+  const allImages = [product.main_image, ...(product.gallery_images || [])].filter(Boolean);
 
   const relatedProducts = allProducts
     .filter(p => p.id !== product.id && (p.category_id === product.category_id || p.product_type === product.product_type))
@@ -90,18 +93,40 @@ export const ProductDetailsPage: React.FC<ProductDetailsPageProps> = ({
           </div>
 
           {/* Main Visual Image Showcase */}
-          <div className="relative rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl aspect-[16/10]">
-            <img
-              src={product.main_image}
-              alt={product.name}
-              className="w-full h-full object-cover"
-              referrerPolicy="no-referrer"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-slate-950/70 via-transparent to-transparent" />
-            <div className="absolute bottom-4 right-4 left-4 p-3 rounded-xl bg-slate-950/85 backdrop-blur-md border border-slate-800 flex items-center justify-between text-xs sm:text-sm">
-              <span className="text-slate-300">الكود المصدري + ملفات التثبيت مشمولة</span>
-              <span className="font-mono text-emerald-400 font-bold">100% كود أصلي</span>
+          <div className="space-y-3">
+            <div className="relative rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl aspect-[16/10]">
+              <img
+                src={currentImage}
+                alt={product.name}
+                className="w-full h-full object-cover transition-all duration-300"
+                referrerPolicy="no-referrer"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/70 via-transparent to-transparent pointer-events-none" />
+              <div className="absolute bottom-4 right-4 left-4 p-3 rounded-xl bg-slate-950/85 backdrop-blur-md border border-slate-800 flex items-center justify-between text-xs sm:text-sm">
+                <span className="text-slate-300">الكود المصدري + ملفات التثبيت مشمولة</span>
+                <span className="font-mono text-emerald-400 font-bold">100% كود أصلي</span>
+              </div>
             </div>
+
+            {/* Gallery Thumbnails Strip */}
+            {allImages.length > 1 && (
+              <div className="flex items-center gap-2.5 overflow-x-auto pb-1 scrollbar-none">
+                {allImages.map((img, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setCurrentImage(img)}
+                    className={`relative w-20 h-14 rounded-xl overflow-hidden border-2 shrink-0 transition-all cursor-pointer ${
+                      currentImage === img 
+                        ? 'border-emerald-500 scale-105 shadow-md shadow-emerald-950/50' 
+                        : 'border-slate-800 opacity-60 hover:opacity-100'
+                    }`}
+                  >
+                    <img src={img} alt={`Preview ${idx + 1}`} className="w-full h-full object-cover" />
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Section Navigation Tabs */}
