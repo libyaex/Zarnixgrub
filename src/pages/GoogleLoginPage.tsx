@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ShieldCheck, Lock, Sparkles, CheckCircle2, ArrowLeft } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 
 interface GoogleLoginPageProps {
   onSuccess: () => void;
@@ -10,22 +11,35 @@ export const GoogleLoginPage: React.FC<GoogleLoginPageProps> = ({ onSuccess }) =
   const { loginWithGoogle } = useAuth();
   const [loading, setLoading] = useState(false);
 
-  // Authenticated Google account from environment
-  const primaryAccount = {
-    email: 'advesapp@gmail.com',
-    full_name: 'نزار الهواري',
-    avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80'
-  };
-
   const handleSignInWithGoogle = async () => {
     setLoading(true);
     try {
-      await loginWithGoogle(primaryAccount);
-    } catch (e) {
-      console.warn('Fallback login handled smoothly', e);
-    } finally {
+      if (supabase) {
+        // Open the REAL official Google Accounts selection window!
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider: 'google',
+          options: {
+            redirectTo: window.location.origin,
+            queryParams: {
+              prompt: 'select_account' // Forces Google to show all accounts on the device!
+            }
+          }
+        });
+        if (error) {
+          console.error('Supabase Google OAuth error:', error);
+          alert('حدث خطأ أثناء فتح Google: ' + error.message);
+          setLoading(false);
+        }
+        return;
+      }
+
+      // If Supabase is not connected yet, alert to provide anon key
+      alert('لتفعيل نافذة Google الحقيقية للزوار، يرجى تزويدنا بمفتاح anon key من Supabase لإضافته في إعدادات الموقع.');
       setLoading(false);
-      onSuccess();
+    } catch (e: any) {
+      console.error(e);
+      alert(e.message || 'حدث خطأ غير متوقع');
+      setLoading(false);
     }
   };
 
