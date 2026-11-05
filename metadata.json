@@ -1,0 +1,6 @@
+{
+  "name": "ZARNIX-Group",
+  "description": "منصة ZARNIX-Group لبيع المنتجات الرقمية والبرمجيات والأنظمة الجاهزة مع الدفع المصرفي بالدينار الليبي والتسليم الآمن وإدارة التراخيص",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
