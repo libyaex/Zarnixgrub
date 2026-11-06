@@ -1,6 +1,8 @@
 /**
  * Phase 3 — Store data endpoints backed by Supabase.
- * Products, categories, orders, coupons (read + validation).
+ * Aligned with the production schema (supabase/schema.sql):
+ * - Bank accounts live in `payment_accounts` (not bank_accounts).
+ * - `orders` has no coupon_id column; coupon usage is tracked by code.
  * Prices are ALWAYS recalculated server-side from the database.
  */
 import { Router, type Request, type Response } from 'express';
@@ -62,7 +64,7 @@ storeRouter.get('/categories', async (_req: Request, res: Response) => {
   res.json(data ?? []);
 });
 
-/** GET /api/services — public: active services only. */
+/** GET /api/services — public: active services from service_tasks catalog. */
 storeRouter.get('/services', async (_req: Request, res: Response) => {
   const { data, error } = await supabaseAdmin
     .from('services')
@@ -76,13 +78,13 @@ storeRouter.get('/services', async (_req: Request, res: Response) => {
   res.json(data ?? []);
 });
 
-/** GET /api/banks — public: active bank accounts for the transfer page. */
+/** GET /api/banks — public: active bank accounts (payment_accounts) for the transfer page. */
 storeRouter.get('/banks', async (_req: Request, res: Response) => {
   const { data, error } = await supabaseAdmin
-    .from('bank_accounts')
-    .select('id, bank_name, account_name, account_number, iban')
+    .from('payment_accounts')
+    .select('id, bank_name, account_holder, account_number, iban, instructions')
     .eq('is_active', true)
-    .order('created_at');
+    .order('is_default', { ascending: false });
   if (error) {
     res.status(500).json({ error: 'تعذر تحميل الحسابات البنكية' });
     return;
@@ -163,8 +165,7 @@ storeRouter.post('/orders', requireAuth, async (req: Request, res: Response) => 
   }
 
   let discountAmount = 0;
-  let appliedCouponId: string | null = null;
-  const couponCode = typeof req.body?.coupon_code === 'string' ? req.body.coupon_code.trim() : '';
+  const couponCode = typeof req.body?.coupon_code === 'string' ? req.body.coupon_code.trim().toUpperCase() : '';
   if (couponCode) {
     const { data: coupon, error: couponError } = await supabaseAdmin
       .from('coupons')
@@ -181,7 +182,6 @@ storeRouter.post('/orders', requireAuth, async (req: Request, res: Response) => 
       coupon.used_count < coupon.max_uses &&
       subtotal >= Number(coupon.minimum_order);
     if (valid && coupon) {
-      appliedCouponId = coupon.id;
       discountAmount =
         coupon.discount_type === 'percentage'
           ? (subtotal * Number(coupon.discount_value)) / 100
@@ -208,7 +208,6 @@ storeRouter.post('/orders', requireAuth, async (req: Request, res: Response) => 
       payment_status: 'unsubmitted',
       order_status: 'pending',
       coupon_code: couponCode || null,
-      coupon_id: appliedCouponId,
       customer_notes: typeof req.body?.customer_notes === 'string' ? req.body.customer_notes.slice(0, 500) : null,
     })
     .select()
@@ -228,18 +227,19 @@ storeRouter.post('/orders', requireAuth, async (req: Request, res: Response) => 
     return;
   }
 
-  // Increment coupon usage only after the order is durably created.
-  if (appliedCouponId) {
+  // Increment coupon usage by code (orders has no coupon_id column).
+  if (couponCode) {
     const { data: coupon } = await supabaseAdmin
       .from('coupons')
-      .select('used_count')
-      .eq('id', appliedCouponId)
+      .select('used_count, max_uses')
+      .eq('code', couponCode)
       .single();
     if (coupon) {
       await supabaseAdmin
         .from('coupons')
         .update({ used_count: coupon.used_count + 1 })
-        .eq('id', appliedCouponId);
+        .eq('code', couponCode)
+        .lt('used_count', coupon.max_uses);
     }
   }
 
@@ -262,7 +262,7 @@ storeRouter.get('/orders', requireAuth, async (req: Request, res: Response) => {
 
 /** POST /api/coupons/validate — authenticated validation of a coupon code. */
 storeRouter.post('/coupons/validate', requireAuth, async (req: Request, res: Response) => {
-  const code = typeof req.body?.code === 'string' ? req.body.code.trim() : '';
+  const code = typeof req.body?.code === 'string' ? req.body.code.trim().toUpperCase() : '';
   if (!code) {
     res.status(400).json({ error: 'يرجى إدخال كود الخصم' });
     return;
