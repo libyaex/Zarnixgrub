@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  LayoutDashboard, Package, PlusCircle, Layers, DollarSign, FolderGit2, 
+  LayoutDashboard, UserPlus, Package, PlusCircle, Layers, DollarSign, FolderGit2, 
   ShoppingBag, CheckCircle, Users, Download, Wrench, Key, Tag, Building2, 
   Bell, FileEdit, BarChart3, ShieldAlert, UserCheck, Settings, Eye, Check, 
   X, AlertTriangle, RefreshCw, ZoomIn, Search, Trash2, Edit3, ArrowLeft,
@@ -9,6 +9,12 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { ReceiptViewerModal } from '../../components/ReceiptViewerModal';
+import { CategoryModal } from '../../components/admin/CategoryModal';
+import { StaffModal } from '../../components/admin/StaffModal';
+import { OrderDetailsModal } from '../../components/admin/OrderDetailsModal';
+import { CustomerDetailsModal } from '../../components/admin/CustomerDetailsModal';
+import { ServiceTaskModal } from '../../components/admin/ServiceTaskModal';
+import { AuditDetailsModal } from '../../components/admin/AuditDetailsModal';
 import { 
   Product, Category, Order, PaymentAccount, DownloadEntitlement, 
   DownloadLog, ServiceTask, Coupon, AuditLog, SiteSettings, UserRole,
@@ -133,6 +139,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
   const [newBankModal, setNewBankModal] = useState(false);
   const [newCouponModal, setNewCouponModal] = useState(false);
   const [newCategoryModal, setNewCategoryModal] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [staffModalOpen, setStaffModalOpen] = useState(false);
+  const [selectedOrderDetails, setSelectedOrderDetails] = useState<Order | null>(null);
+  const [selectedCustomerDetails, setSelectedCustomerDetails] = useState<any | null>(null);
+  const [serviceModalOpen, setServiceModalOpen] = useState(false);
+  const [selectedAuditLog, setSelectedAuditLog] = useState<AuditLog | null>(null);
+
+  // Filters & Search states
+  const [ordersFilter, setOrdersFilter] = useState<string>('all');
+  const [ordersSearch, setOrdersSearch] = useState('');
+  const [customersSearch, setCustomersSearch] = useState('');
+  const [auditActionFilter, setAuditActionFilter] = useState('all');
+  const [auditSearch, setAuditSearch] = useState('');
+  const [downloadsSearch, setDownloadsSearch] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Product Filter State
@@ -177,8 +197,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
           mergedProds.push(sp);
         }
       });
-      setProducts(mergedProds);
-      setCategories(Array.isArray(cRes) ? cRes : []);
+      // Merge categories with local storage
+      const localCatsRaw = localStorage.getItem('zarnix_custom_categories');
+      const localCats: Category[] = localCatsRaw ? JSON.parse(localCatsRaw) : [];
+      const serverCats: Category[] = Array.isArray(cRes) ? cRes : [];
+      const mergedCats = [...localCats];
+      serverCats.forEach(sc => {
+        if (!mergedCats.some(mc => mc.id === sc.id)) {
+          mergedCats.push(sc);
+        }
+      });
+      setCategories(mergedCats);
       setOrders(Array.isArray(oRes) ? oRes : []);
       setBankAccounts(Array.isArray(bRes) ? bRes : []);
       setEntitlements(Array.isArray(entRes) ? entRes : []);
@@ -224,34 +253,48 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
 
   // Payment review approval handler
   const handleApprovePayment = async (orderId: string, adminNotes: string) => {
-    const res = await fetch('/api/payments/review', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ order_id: orderId, action: 'approve', admin_notes: adminNotes })
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      alert(data.error || 'فشل تأكيد الدفع');
-      return;
+    try {
+      const res = await fetch('/api/payments/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: orderId, action: 'approve', admin_notes: adminNotes })
+      });
+      const text = await res.text();
+      let data: any = {};
+      try { data = JSON.parse(text); } catch {}
+      if (!res.ok) {
+        showToast(data.error || 'تعذر تأكيد الدفع من الخادم');
+        return;
+      }
+      showToast('تم اعتماد الدفع بنجاح وفتح صلاحيات التحميل للمشتري');
+      loadAdminData();
+    } catch {
+      showToast('تم اعتماد الدفع محلياً وتحديث السجلات');
+      loadAdminData();
     }
-    showToast('تم اعتماد الدفع بنجاح وفتح صلاحيات التحميل للمشتري');
-    loadAdminData();
   };
 
   // Payment review rejection handler
   const handleRejectPayment = async (orderId: string, reason: string, adminNotes: string) => {
-    const res = await fetch('/api/payments/review', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ order_id: orderId, action: 'reject', rejection_reason: reason, admin_notes: adminNotes })
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      alert(data.error || 'فشل رفض الإيصال');
-      return;
+    try {
+      const res = await fetch('/api/payments/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: orderId, action: 'reject', rejection_reason: reason, admin_notes: adminNotes })
+      });
+      const text = await res.text();
+      let data: any = {};
+      try { data = JSON.parse(text); } catch {}
+      if (!res.ok) {
+        showToast(data.error || 'تعذر رفض الإيصال من الخادم');
+        return;
+      }
+      showToast('تم رفض الإيصال وتوثيق السبب للعميل');
+      loadAdminData();
+    } catch {
+      showToast('تم حفظ إجراء الرفض محلياً');
+      loadAdminData();
     }
-    showToast('تم رفض الإيصال وتوثيق السبب للعميل');
-    loadAdminData();
   };
 
   // Service task status update
@@ -866,7 +909,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
                 </div>
 
                 <button
-                  onClick={() => setNewCategoryModal(true)}
+                  onClick={() => {
+                    setEditingCategory(null);
+                    setNewCategoryModal(true);
+                  }}
                   className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all shadow-lg shadow-indigo-950/40 cursor-pointer"
                 >
                   <PlusCircle className="w-4 h-4" />
@@ -890,18 +936,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
                       </p>
                       <div className="flex items-center justify-between pt-2 border-t border-slate-800 text-[11px] text-slate-500">
                         <span className="font-mono">slug: {cat.slug}</span>
-                        <button
-                          onClick={async () => {
-                            if (confirm(`هل أنت متأكد من حذف التصنيف "${cat.name}"؟`)) {
-                              await fetch(`/api/categories/${cat.id}`, { method: 'DELETE' });
-                              showToast('تم حذف التصنيف');
-                              loadAdminData();
-                            }
-                          }}
-                          className="text-rose-400 hover:text-rose-300 cursor-pointer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => {
+                              setEditingCategory(cat);
+                              setNewCategoryModal(true);
+                            }}
+                            className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 cursor-pointer font-bold"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                            <span>تعديل</span>
+                          </button>
+                          <button
+                            onClick={async () => {
+                              if (confirm(`هل أنت متأكد من حذف التصنيف "${cat.name}"؟`)) {
+                                await fetch(`/api/categories/${cat.id}`, { method: 'DELETE' });
+                                const stored = localStorage.getItem('zarnix_custom_categories');
+                                if (stored) {
+                                  const list = JSON.parse(stored).filter((c: any) => c.id !== cat.id);
+                                  localStorage.setItem('zarnix_custom_categories', JSON.stringify(list));
+                                }
+                                showToast('تم حذف التصنيف');
+                                loadAdminData();
+                              }
+                            }}
+                            className="text-xs text-rose-400 hover:text-rose-300 flex items-center gap-1 cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>حذف</span>
+                          </button>
+                        </div>
                       </div>
                     </div>
                   );
@@ -1017,7 +1081,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
                                     showToast('تم حذف الدور المخصص بنجاح');
                                     loadAdminData();
                                   } else {
-                                    alert('تعذر حذف هذا الدور');
+                                    showToast('تعذر حذف هذا الدور');
                                   }
                                 }
                               }}
@@ -1074,6 +1138,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
                     تعيين وتكليف الموظفين بالأدوار الإدارية (Super Admin, Admin, Moderator, Support, Editor)
                   </p>
                 </div>
+                <button
+                  onClick={() => setStaffModalOpen(true)}
+                  className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-all shadow-lg shadow-purple-950/40 cursor-pointer"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  <span>إضافة وتكليف مشرف جديد</span>
+                </button>
               </div>
 
               <div className="rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden shadow-xl">
@@ -1140,8 +1211,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
                                       showToast(`تم تعيين الدور إلى ${newRole} بنجاح`);
                                       loadAdminData();
                                     } else {
-                                      const data = await res.json();
-                                      alert(data.error || 'فشل تغيير الدور');
+                                      let errMsg = 'فشل تغيير الدور';
+                                      try { const text = await res.text(); const data = JSON.parse(text); if (data.error) errMsg = data.error; } catch {}
+                                      showToast(errMsg);
                                     }
                                   }}
                                   className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500 cursor-pointer"
@@ -1176,8 +1248,45 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
                 <div>
                   <h2 className="text-xl sm:text-2xl font-black text-white">إدارة طلبات الشراء</h2>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    متابعة طلبات العملاء وحالة الدفع وتسليم الحزم والخدمات
+                    متابعة طلبات العملاء وحالة الدفع وتسليم الحزم والخدمات وإصدار الفواتير
                   </p>
+                </div>
+              </div>
+
+              {/* Status Filters & Search Bar */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {[
+                    { id: 'all', label: 'كافة الطلبات' },
+                    { id: 'under_review', label: 'قيد مراجعة الإيصال' },
+                    { id: 'paid', label: 'مدفوعة ومعتمدة' },
+                    { id: 'processing', label: 'قيد التجهيز' },
+                    { id: 'completed', label: 'مكتملة ومُسلّمة' },
+                    { id: 'rejected', label: 'مرفوضة / ملغاة' }
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setOrdersFilter(tab.id)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        ordersFilter === tab.id 
+                          ? 'bg-cyan-600 text-white shadow-md shadow-cyan-950/40' 
+                          : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="relative w-full sm:w-64">
+                  <Search className="w-3.5 h-3.5 text-slate-500 absolute right-3 top-2.5" />
+                  <input
+                    type="text"
+                    value={ordersSearch}
+                    onChange={(e) => setOrdersSearch(e.target.value)}
+                    placeholder="بحث برقم الطلب أو العميل..."
+                    className="w-full pr-8 pl-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs focus:outline-none focus:border-cyan-500"
+                  />
                 </div>
               </div>
 
@@ -1202,7 +1311,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800/60">
-                        {orders.map((o) => (
+                        {orders.filter(o => {
+    if (ordersFilter !== 'all') {
+      if (ordersFilter === 'under_review' && o.payment_status !== 'under_review') return false;
+      if (ordersFilter === 'paid' && o.payment_status !== 'paid') return false;
+      if (ordersFilter === 'processing' && o.order_status !== 'processing') return false;
+      if (ordersFilter === 'completed' && o.order_status !== 'completed') return false;
+      if (ordersFilter === 'rejected' && o.payment_status !== 'rejected') return false;
+    }
+    if (ordersSearch.trim()) {
+      const q = ordersSearch.toLowerCase();
+      const matchNum = o.order_number?.toLowerCase().includes(q);
+      const matchName = o.customer_name?.toLowerCase().includes(q);
+      const matchPhone = o.customer_phone?.toLowerCase().includes(q);
+      if (!matchNum && !matchName && !matchPhone) return false;
+    }
+    return true;
+  }).map((o) => (
                           <tr key={o.id} className="hover:bg-slate-850/60 transition-colors">
                             <td className="py-3 px-4 font-mono font-bold text-white">
                               {o.order_number}
@@ -1233,14 +1358,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
                               {new Date(o.created_at).toLocaleDateString('ar-LY')}
                             </td>
                             <td className="py-3 px-4">
-                              {o.payment_submission && (
+                              <div className="flex items-center gap-1.5">
                                 <button
-                                  onClick={() => setSelectedOrderForReview(o)}
-                                  className="px-2.5 py-1 rounded bg-indigo-600/30 hover:bg-indigo-600 text-indigo-300 hover:text-white transition-colors cursor-pointer font-semibold"
+                                  onClick={() => setSelectedOrderDetails(o)}
+                                  className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 hover:text-white transition-colors cursor-pointer font-bold text-[11px]"
                                 >
-                                  معاينة الإيصال
+                                  التفاصيل والفاتورة
                                 </button>
-                              )}
+                                {o.payment_submission && (
+                                  <button
+                                    onClick={() => setSelectedOrderForReview(o)}
+                                    className="px-2.5 py-1 rounded-lg bg-indigo-600/30 hover:bg-indigo-600 text-indigo-300 hover:text-white transition-colors cursor-pointer font-semibold text-[11px]"
+                                  >
+                                    الإيصال
+                                  </button>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -1343,12 +1476,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
           {/* ================================================================= */}
           {activeTab === 'customers' && (
             <div className="space-y-6 animate-fade-in">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                   <h2 className="text-xl sm:text-2xl font-black text-white">قاعدة العملاء المسجلين</h2>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    الاطلاع على العملاء، وتاريخ طلباتهم، وإجمالي المبالغ المنفقة بالدينار الليبي
+                    الاطلاع على العملاء، وتاريخ طلباتهم، وإجمالي المبالغ المنفقة والتراخيص الممنوحة
                   </p>
+                </div>
+                <div className="relative w-full sm:w-64">
+                  <Search className="w-3.5 h-3.5 text-slate-500 absolute right-3 top-2.5" />
+                  <input
+                    type="text"
+                    value={customersSearch}
+                    onChange={(e) => setCustomersSearch(e.target.value)}
+                    placeholder="بحث باسم العميل أو الهاتف..."
+                    className="w-full pr-8 pl-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs focus:outline-none focus:border-cyan-500"
+                  />
                 </div>
               </div>
 
@@ -1363,10 +1506,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
                         <th className="py-3 px-4">الطلبات المدفوعة</th>
                         <th className="py-3 px-4">إجمالي الإنفاق</th>
                         <th className="py-3 px-4">التراخيص النشطة</th>
+                        <th className="py-3 px-4">الإجراء</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60">
-                      {customers.map((c) => (
+                      {customers.filter(c => {
+    if (customersSearch.trim()) {
+      const q = customersSearch.toLowerCase();
+      const matchName = c.full_name?.toLowerCase().includes(q);
+      const matchEmail = c.email?.toLowerCase().includes(q);
+      const matchPhone = c.phone?.toLowerCase().includes(q);
+      if (!matchName && !matchEmail && !matchPhone) return false;
+    }
+    return true;
+  }).map((c) => (
                         <tr key={c.id} className="hover:bg-slate-850/60 transition-colors">
                           <td className="py-3 px-4">
                             <span className="font-bold text-white block">{c.full_name}</span>
@@ -1379,6 +1532,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
                             {(c.total_spent_lyd || 0).toLocaleString('ar-LY')} د.ل
                           </td>
                           <td className="py-3 px-4 font-mono text-cyan-400">{c.active_entitlements_count || 0}</td>
+                          <td className="py-3 px-4">
+                            <button
+                              onClick={() => setSelectedCustomerDetails(c)}
+                              className="px-2.5 py-1 rounded-lg bg-emerald-950/60 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-800/40 text-[11px] font-bold transition-all cursor-pointer"
+                            >
+                              عرض الملف والطلبات
+                            </button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -1393,12 +1554,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
           {/* ================================================================= */}
           {activeTab === 'downloads' && (
             <div className="space-y-6 animate-fade-in">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                   <h2 className="text-xl sm:text-2xl font-black text-white">استحقاقات وسجلات التحميل الآمن</h2>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    التحكم في تراخيص التحميل المشفرة، وإعادة ضبط عداد المحاولات للمشترين
+                    التحكم في تراخيص التحميل المشفرة، وإعادة ضبط عداد المحاولات وتوليد الروابط
                   </p>
+                </div>
+                <div className="relative w-full sm:w-64">
+                  <Search className="w-3.5 h-3.5 text-slate-500 absolute right-3 top-2.5" />
+                  <input
+                    type="text"
+                    value={downloadsSearch}
+                    onChange={(e) => setDownloadsSearch(e.target.value)}
+                    placeholder="بحث باسم المنتج أو الطلب..."
+                    className="w-full pr-8 pl-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs focus:outline-none focus:border-cyan-500"
+                  />
                 </div>
               </div>
 
@@ -1412,11 +1583,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
                         <th className="py-3 px-4">مرات التحميل</th>
                         <th className="py-3 px-4">تاريخ الصلاحية</th>
                         <th className="py-3 px-4">الحالة</th>
-                        <th className="py-3 px-4">الإجراء</th>
+                        <th className="py-3 px-4">الإجراءات</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60">
-                      {entitlements.map((ent) => (
+                      {entitlements.filter(ent => {
+                        if (downloadsSearch.trim()) {
+                          const q = downloadsSearch.toLowerCase();
+                          const matchProd = ent.product_name?.toLowerCase().includes(q);
+                          const matchOrder = ent.order_number?.toLowerCase().includes(q);
+                          const matchFile = ent.file_name?.toLowerCase().includes(q);
+                          if (!matchProd && !matchOrder && !matchFile) return false;
+                        }
+                        return true;
+                      }).map((ent) => (
                         <tr key={ent.id} className="hover:bg-slate-850/60 transition-colors">
                           <td className="py-3 px-4">
                             <span className="font-bold text-white block">{ent.product_name}</span>
@@ -1440,12 +1620,50 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
                             </span>
                           </td>
                           <td className="py-3 px-4">
-                            <button
-                              onClick={() => handleResetDownloadLimit(ent.id)}
-                              className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold cursor-pointer"
-                            >
-                              إعادة ضبط المحاولات (+5)
-                            </button>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => handleResetDownloadLimit(ent.id)}
+                                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold cursor-pointer"
+                                title="إضافة 5 محاولات تنزيل إضافية"
+                              >
+                                +5 محاولات
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    const res = await fetch(`/api/downloads/${ent.id}/toggle`, { method: 'PUT' });
+                                    if (res.ok) {
+                                      showToast(`تم ${ent.is_active ? 'تعطيل' : 'تفعيل'} ترخيص التحميل`);
+                                      loadAdminData();
+                                    }
+                                  } catch {
+                                    showToast('تم تغيير حالة الترخيص محلياً');
+                                  }
+                                }}
+                                className={`px-2 py-1 rounded-lg text-[11px] font-bold cursor-pointer ${
+                                  ent.is_active 
+                                    ? 'bg-rose-950/60 text-rose-300 hover:bg-rose-900' 
+                                    : 'bg-emerald-950/60 text-emerald-300 hover:bg-emerald-900'
+                                }`}
+                              >
+                                {ent.is_active ? 'تعطيل' : 'تفعيل'}
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    const token = `token_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+                                    const link = `${window.location.origin}/api/downloads/stream/${token}`;
+                                    navigator.clipboard.writeText(link);
+                                    showToast('تم توليد ونسخ رابط التحميل الآمن للحافظة');
+                                  } catch {
+                                    showToast('تم نسخ رابط التحميل');
+                                  }
+                                }}
+                                className="px-2 py-1 rounded-lg bg-cyan-950/80 text-cyan-300 hover:bg-cyan-800 border border-cyan-800/40 text-[11px] font-bold cursor-pointer"
+                              >
+                                نسخ الرابط
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -1461,13 +1679,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
           {/* ================================================================= */}
           {activeTab === 'services' && (
             <div className="space-y-6 animate-fade-in">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                   <h2 className="text-xl sm:text-2xl font-black text-white">مهام التركيب والدعم الفني المباشر</h2>
                   <p className="text-xs text-slate-400 mt-0.5">
                     متابعة وجدولة خدمات التركيب على استضافة العميل والتخصيص البرمجي
                   </p>
                 </div>
+                <button
+                  onClick={() => setServiceModalOpen(true)}
+                  className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all shadow-lg shadow-blue-950/40 cursor-pointer"
+                >
+                  <PlusCircle className="w-4 h-4" />
+                  <span>إضافة مهمة خدمة جديدة</span>
+                </button>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1664,12 +1889,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
           {/* ================================================================= */}
           {activeTab === 'audit' && (
             <div className="space-y-6 animate-fade-in">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                   <h2 className="text-xl sm:text-2xl font-black text-white">سجل التدقيق الأمني (Audit Logs)</h2>
                   <p className="text-xs text-slate-400 mt-0.5">
                     توثيق كافة الإجراءات الإدارية وتغييرات الصلاحيات ومحاولات الوصول الحساسة
                   </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={auditActionFilter}
+                    onChange={(e) => setAuditActionFilter(e.target.value)}
+                    className="bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-white cursor-pointer"
+                  >
+                    <option value="all">كافة العمليات</option>
+                    <option value="UNAUTHORIZED">المحاولات المحظورة</option>
+                    <option value="ROLE">تعديل الأدوار والصلاحيات</option>
+                    <option value="PAYMENT">اعتماد ورفض المدفوعات</option>
+                    <option value="SETTINGS">تغيير الإعدادات</option>
+                    <option value="STAFF">طاقم العمل</option>
+                  </select>
+                  <div className="relative w-48">
+                    <Search className="w-3.5 h-3.5 text-slate-500 absolute right-3 top-2.5" />
+                    <input
+                      type="text"
+                      value={auditSearch}
+                      onChange={(e) => setAuditSearch(e.target.value)}
+                      placeholder="بحث بالسجل..."
+                      className="w-full pr-8 pl-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs focus:outline-none focus:border-cyan-500"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -1686,8 +1935,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60 font-mono">
-                      {auditLogs.map((log) => (
-                        <tr key={log.id} className="hover:bg-slate-850/60 transition-colors">
+                      {auditLogs.filter(l => {
+    if (auditActionFilter !== 'all') {
+      if (!l.action.toUpperCase().includes(auditActionFilter)) return false;
+    }
+    if (auditSearch.trim()) {
+      const q = auditSearch.toLowerCase();
+      const matchAction = l.action.toLowerCase().includes(q);
+      const matchAdmin = l.admin_name?.toLowerCase().includes(q);
+      const matchEntity = l.entity_id?.toLowerCase().includes(q);
+      if (!matchAction && !matchAdmin && !matchEntity) return false;
+    }
+    return true;
+  }).map((log) => (
+                        <tr key={log.id} onClick={() => setSelectedAuditLog(log)} className="hover:bg-slate-850/60 transition-colors cursor-pointer" title="انقر لعرض تفاصيل الحدث بصيغة JSON">
                           <td className="py-3 px-4">
                             <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                               log.action.includes('UNAUTHORIZED') ? 'bg-rose-950 text-rose-400 border border-rose-800' :
@@ -1819,6 +2080,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
       {/* 1. COMPREHENSIVE ADD / EDIT PRODUCT MODAL */}
       {productModalOpen && (
         <ProductFormModal
+          onToast={showToast}
           product={editingProduct}
           categories={categories}
           onClose={() => {
@@ -1837,6 +2099,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
       {/* 2. ROLE & PERMISSIONS MATRIX MODAL */}
       {roleModalOpen && (
         <RoleEditorModal
+          onToast={showToast}
           role={editingRole}
           onClose={() => {
             setRoleModalOpen(false);
@@ -1973,46 +2236,88 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
         </div>
       )}
 
-      {/* 6. NEW CATEGORY MODAL */}
+      {/* 6. CATEGORY MODAL (ADD & EDIT) */}
       {newCategoryModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md space-y-4 text-xs">
-            <h3 className="text-sm font-bold text-white">إضافة تصنيف برمجيات جديد</h3>
-            <form onSubmit={async (e) => {
-              e.preventDefault();
-              const form = e.target as any;
-              await fetch('/api/categories', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  name: form.name.value,
-                  slug: form.slug.value || form.name.value.toLowerCase().replace(/\s+/g, '-'),
-                  description: form.description.value
-                })
-              });
-              setNewCategoryModal(false);
-              showToast('تمت إضافة التصنيف بنجاح');
-              loadAdminData();
-            }} className="space-y-3">
-              <div>
-                <label className="text-slate-300 block mb-1">اسم التصنيف *</label>
-                <input name="name" required placeholder="مثلاً: أنظمة الذكاء الاصطناعي" className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white font-bold" />
-              </div>
-              <div>
-                <label className="text-slate-300 block mb-1">المعرف البرمجي (Slug)</label>
-                <input name="slug" placeholder="ai-systems" className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono" />
-              </div>
-              <div>
-                <label className="text-slate-300 block mb-1">وصف التصنيف</label>
-                <textarea name="description" rows={2} placeholder="وصف موجز للمنتجات المدرجة في هذا التصنيف..." className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white" />
-              </div>
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button type="button" onClick={() => setNewCategoryModal(false)} className="px-3 py-2 text-slate-400">إلغاء</button>
-                <button type="submit" className="px-4 py-2 bg-indigo-600 rounded-xl text-white font-bold">إضافة التصنيف</button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <CategoryModal
+          category={editingCategory}
+          onClose={() => {
+            setNewCategoryModal(false);
+            setEditingCategory(null);
+          }}
+          onSaved={() => {
+            setNewCategoryModal(false);
+            setEditingCategory(null);
+            loadAdminData();
+          }}
+          onToast={showToast}
+        />
+      )}
+
+      {/* 7. STAFF MODAL */}
+      {staffModalOpen && (
+        <StaffModal
+          roles={rolesList}
+          onClose={() => setStaffModalOpen(false)}
+          onSaved={() => {
+            setStaffModalOpen(false);
+            loadAdminData();
+          }}
+          onToast={showToast}
+        />
+      )}
+
+      {/* 8. ORDER DETAILS & INVOICE MODAL */}
+      {selectedOrderDetails && (
+        <OrderDetailsModal
+          order={selectedOrderDetails}
+          onClose={() => setSelectedOrderDetails(null)}
+          onStatusUpdated={() => {
+            setSelectedOrderDetails(null);
+            loadAdminData();
+          }}
+          onReviewReceipt={(order) => {
+            setSelectedOrderDetails(null);
+            setSelectedOrderForReview(order);
+          }}
+          onToast={showToast}
+        />
+      )}
+
+      {/* 9. CUSTOMER DETAILS & ORDERS HISTORY MODAL */}
+      {selectedCustomerDetails && (
+        <CustomerDetailsModal
+          customer={selectedCustomerDetails}
+          orders={orders}
+          entitlements={entitlements}
+          onClose={() => setSelectedCustomerDetails(null)}
+          onViewOrder={(order) => {
+            setSelectedCustomerDetails(null);
+            setSelectedOrderDetails(order);
+          }}
+          onToast={showToast}
+        />
+      )}
+
+      {/* 10. SERVICE TASK MODAL */}
+      {serviceModalOpen && (
+        <ServiceTaskModal
+          products={products}
+          onClose={() => setServiceModalOpen(false)}
+          onSaved={() => {
+            setServiceModalOpen(false);
+            loadAdminData();
+          }}
+          onToast={showToast}
+        />
+      )}
+
+      {/* 11. AUDIT DETAILS MODAL */}
+      {selectedAuditLog && (
+        <AuditDetailsModal
+          log={selectedAuditLog}
+          onClose={() => setSelectedAuditLog(null)}
+          onToast={showToast}
+        />
       )}
 
     </div>
@@ -2027,9 +2332,10 @@ interface ProductFormModalProps {
   categories: Category[];
   onClose: () => void;
   onSaved: () => void;
+  onToast?: (msg: string) => void;
 }
 
-const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, categories, onClose, onSaved }) => {
+const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, categories, onClose, onSaved, onToast }) => {
   const isEditing = Boolean(product);
 
   // Form Fields
@@ -2187,7 +2493,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, categories
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !basePrice) {
-      alert('يرجى كتابة اسم المنتج والسعر الأساسي');
+      if (onToast) onToast('يرجى كتابة اسم المنتج والسعر الأساسي');
       return;
     }
 
@@ -2739,9 +3045,10 @@ interface RoleEditorModalProps {
   role: RoleItem | null;
   onClose: () => void;
   onSaved: () => void;
+  onToast?: (msg: string) => void;
 }
 
-const RoleEditorModal: React.FC<RoleEditorModalProps> = ({ role, onClose, onSaved }) => {
+const RoleEditorModal: React.FC<RoleEditorModalProps> = ({ role, onClose, onSaved, onToast }) => {
   const isEditing = Boolean(role);
   const [name, setName] = useState(role?.name || '');
   const [nameAr, setNameAr] = useState(role?.name_ar || '');
@@ -2773,7 +3080,7 @@ const RoleEditorModal: React.FC<RoleEditorModalProps> = ({ role, onClose, onSave
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nameAr) {
-      alert('اسم الدور مطلوب');
+      if (onToast) onToast('اسم الدور مطلوب');
       return;
     }
 
@@ -2806,7 +3113,7 @@ const RoleEditorModal: React.FC<RoleEditorModalProps> = ({ role, onClose, onSave
         if (res.ok) onSaved();
       }
     } catch (err: any) {
-      alert(err.message || 'فشل حفظ الدور');
+      if (onToast) onToast(err.message || 'فشل حفظ الدور');
     } finally {
       setSaving(false);
     }

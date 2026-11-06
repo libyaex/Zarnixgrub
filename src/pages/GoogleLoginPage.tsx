@@ -10,8 +10,10 @@ interface GoogleLoginPageProps {
 export const GoogleLoginPage: React.FC<GoogleLoginPageProps> = ({ onSuccess }) => {
   const { loginWithGoogle } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const handleSignInWithGoogle = async () => {
+    setErrorMsg(null);
     setLoading(true);
     try {
       if (supabase) {
@@ -31,18 +33,17 @@ export const GoogleLoginPage: React.FC<GoogleLoginPageProps> = ({ onSuccess }) =
         });
         if (error) {
           console.error('Supabase Google OAuth error:', error);
-          alert('حدث خطأ أثناء فتح Google: ' + error.message);
+          setErrorMsg('حدث خطأ أثناء فتح Google: ' + error.message);
           setLoading(false);
         }
         return;
       }
 
-      // If Supabase is not connected yet, alert to provide anon key
-      alert('لتفعيل نافذة Google الحقيقية للزوار، يرجى تزويدنا بمفتاح anon key من Supabase لإضافته في إعدادات الموقع.');
+      setErrorMsg('لتفعيل نافذة Google الحقيقية للزوار، يرجى تزويدنا بمفتاح anon key من Supabase لإضافته في إعدادات الموقع.');
       setLoading(false);
     } catch (e: any) {
       console.error(e);
-      alert(e.message || 'حدث خطأ غير متوقع');
+      setErrorMsg(e.message || 'حدث خطأ غير متوقع');
       setLoading(false);
     }
   };
@@ -93,6 +94,11 @@ export const GoogleLoginPage: React.FC<GoogleLoginPageProps> = ({ onSuccess }) =
 
           {/* Official Google Sign-In Button */}
           <div className="space-y-3 pt-2">
+            {errorMsg && (
+              <div className="p-3.5 rounded-xl bg-rose-950/70 border border-rose-800 text-rose-300 text-xs leading-relaxed text-center font-medium">
+                {errorMsg}
+              </div>
+            )}
             <button
               onClick={handleSignInWithGoogle}
               disabled={loading}

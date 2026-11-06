@@ -546,6 +546,48 @@ app.put('/api/admin/staff/:id/role', requireAdminRole(['super_admin', 'owner', '
   res.json({ success: true, user: targetUser });
 });
 
+// Create/invite new staff member
+app.post('/api/admin/staff', requireAdminRole(['super_admin', 'owner', 'manage_roles_permissions', 'manage_users']), (req, res) => {
+  const { full_name, email, phone, role } = req.body;
+  if (!full_name || !email) {
+    return res.status(400).json({ error: 'الاسم والبريد الإلكتروني مطلوبان' });
+  }
+  const cleanEmail = email.toLowerCase().trim();
+  const existing = users.find(u => u.email.toLowerCase() === cleanEmail);
+  if (existing) {
+    existing.role = role || 'support';
+    if (phone) existing.phone = phone;
+    if (full_name) existing.full_name = full_name;
+    return res.json({ success: true, user: existing });
+  }
+
+  const newUser = {
+    id: `usr_${Date.now()}`,
+    email: cleanEmail,
+    full_name: full_name.trim(),
+    phone: phone || '',
+    avatar_url: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(full_name)}`,
+    role: role || 'support',
+    status: 'active' as const,
+    created_at: new Date().toISOString()
+  };
+  users.push(newUser);
+
+  const adminUser = getAuthUser(req) || users[0];
+  auditLogs.unshift({
+    id: `audit_${Date.now()}`,
+    admin_id: adminUser.id,
+    admin_name: adminUser.full_name,
+    action: 'CREATE_STAFF_MEMBER',
+    entity_type: 'USER',
+    entity_id: newUser.id,
+    details: { email: newUser.email, role: newUser.role, full_name: newUser.full_name },
+    created_at: new Date().toISOString()
+  });
+
+  res.status(201).json({ success: true, user: newUser });
+});
+
 // File and Image Upload Endpoint for Cover Images and Gallery Screenshots
 app.post('/api/upload', (req, res) => {
   try {
@@ -1142,6 +1184,31 @@ app.get('/api/orders/:id', (req, res) => {
   res.json(order);
 });
 
+// Update Order Status & Notes
+app.put('/api/orders/:id/status', requireAdminRole(['owner', 'admin', 'manage_orders']), (req, res) => {
+  const order = orders.find(o => o.id === req.params.id || o.order_number === req.params.id);
+  if (!order) return res.status(404).json({ error: 'الطلب غير موجود' });
+  
+  const { order_status, payment_status, notes } = req.body;
+  if (order_status) order.order_status = order_status;
+  if (payment_status) order.payment_status = payment_status;
+  if (notes) order.customer_notes = `${order.customer_notes || ''} [ملاحظة إدارة: ${notes}]`;
+
+  const adminUser = getAuthUser(req) || users[0];
+  auditLogs.unshift({
+    id: `audit_${Date.now()}`,
+    admin_id: adminUser.id,
+    admin_name: adminUser.full_name,
+    action: 'UPDATE_ORDER_STATUS',
+    entity_type: 'ORDER',
+    entity_id: order.id,
+    details: { order_number: order.order_number, order_status, payment_status },
+    created_at: new Date().toISOString()
+  });
+
+  res.json({ success: true, order });
+});
+
 // 8. Payment Submission (Customer uploads receipt)
 app.post('/api/payments/submit-proof', rateLimit('proof', 10, 600000), (req, res) => {
   const { order_id, sender_name, sender_bank, transaction_reference, transferred_amount, transfer_date, receipt_image, notes } = req.body;
@@ -1503,6 +1570,37 @@ app.put('/api/services/:id', requireAdminRole(['owner', 'admin', 'support_manage
   res.json({ success: true, task });
 });
 
+// Create new service task from admin
+app.post('/api/services', requireAdminRole(['owner', 'admin', 'support_manager']), (req, res) => {
+  const { service_name, customer_name, customer_phone, product_name, details } = req.body;
+  if (!service_name || !customer_name) {
+    return res.status(400).json({ error: 'اسم الخدمة واسم العميل مطلوبان' });
+  }
+
+  const newTask: ServiceTask = {
+    id: `srv_${Date.now()}`,
+    order_id: `ord_${Date.now()}`,
+    order_number: `ORD-${Date.now().toString().slice(-5)}`,
+    product_id: 'custom',
+    product_name: product_name || 'خدمة مخصصة',
+    service_name,
+    customer_name,
+    details: details || 'مهمة دعم وتركيب مخصصة',
+    status: 'not_started',
+    created_at: new Date().toISOString()
+  };
+  serviceTasks.unshift(newTask);
+  res.status(201).json({ success: true, task: newTask });
+});
+
+// Toggle download entitlement active status
+app.put('/api/downloads/:id/toggle', requireAdminRole(['owner', 'admin']), (req, res) => {
+  const entitlement = downloadEntitlements.find(e => e.id === req.params.id);
+  if (!entitlement) return res.status(404).json({ error: 'الاستحقاق غير موجود' });
+  entitlement.is_active = !entitlement.is_active;
+  res.json({ success: true, entitlement });
+});
+
 // 13. Admin Dashboard Analytics (Section 13)
 app.get('/api/admin/stats', requireAdminRole(['owner', 'admin']), (req, res) => {
   const paidOrders = orders.filter(o => o.payment_status === 'paid');
@@ -1557,8 +1655,9 @@ app.put('/api/settings', requireAdminRole(['owner', 'admin']), (req, res) => {
 // Vite Middlewares in Dev / Static Files in Production
 // -----------------------------------------------------------------------------
 async function startServer() {
-  if (!isProduction) {
-    const { createServer: createViteServer } = await import('vite');
+  if (!isProduction && !process.env.VERCEL) {
+    const vitePkg = 'vite';
+    const { createServer: createViteServer } = await import(/* @vite-ignore */ vitePkg);
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',

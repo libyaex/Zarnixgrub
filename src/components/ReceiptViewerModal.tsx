@@ -22,12 +22,14 @@ export const ReceiptViewerModal: React.FC<ReceiptViewerModalProps> = ({
   const [rejectionReason, setRejectionReason] = useState('');
   const [showRejectForm, setShowRejectForm] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   if (!isOpen || !order.payment_submission) return null;
 
   const sub = order.payment_submission;
 
   const handleApprove = async () => {
+    setErrorMsg(null);
     setProcessing(true);
     try {
       await onApprove(order.id, adminNotes);
@@ -39,9 +41,10 @@ export const ReceiptViewerModal: React.FC<ReceiptViewerModalProps> = ({
 
   const handleReject = async () => {
     if (!rejectionReason.trim()) {
-      alert('يرجى تحديد سبب رفض الإيصال');
+      setErrorMsg('يرجى تحديد وكتابة سبب رفض الإيصال لإبلاغ المشتري');
       return;
     }
+    setErrorMsg(null);
     setProcessing(true);
     try {
       await onReject(order.id, rejectionReason, adminNotes);
@@ -184,6 +187,12 @@ export const ReceiptViewerModal: React.FC<ReceiptViewerModalProps> = ({
                 className="w-full px-3 py-2 text-xs rounded-xl bg-slate-950 border border-slate-700 text-white focus:outline-none focus:border-emerald-500"
               />
             </div>
+
+            {errorMsg && (
+              <div className="p-3 rounded-xl bg-rose-950/80 border border-rose-800 text-rose-300 text-xs font-semibold text-center">
+                {errorMsg}
+              </div>
+            )}
 
             {/* Reject reason sub-form if toggle active */}
             {showRejectForm ? (
