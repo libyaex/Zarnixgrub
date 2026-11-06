@@ -3,6 +3,9 @@
  * Aligned with the production schema (supabase/schema.sql):
  * - Bank accounts live in `payment_accounts` (not bank_accounts).
  * - `orders` has no coupon_id column; coupon usage is tracked by code.
+ * - There is no separate `services` catalog table: services are the
+ *   installation/customization addons represented by product_options
+ *   (option_type 'addon') on published products.
  * Prices are ALWAYS recalculated server-side from the database.
  */
 import { Router, type Request, type Response } from 'express';
@@ -64,13 +67,14 @@ storeRouter.get('/categories', async (_req: Request, res: Response) => {
   res.json(data ?? []);
 });
 
-/** GET /api/services — public: active services from service_tasks catalog. */
+/** GET /api/services — public: active addon options across published products. */
 storeRouter.get('/services', async (_req: Request, res: Response) => {
   const { data, error } = await supabaseAdmin
-    .from('services')
-    .select('*')
+    .from('product_options')
+    .select('id, product_id, name, description, price, option_type, products!inner(name, slug, status)')
     .eq('is_active', true)
-    .order('created_at', { ascending: false });
+    .eq('products.status', 'published')
+    .order('price', { ascending: true });
   if (error) {
     res.status(500).json({ error: 'تعذر تحميل الخدمات حالياً' });
     return;
