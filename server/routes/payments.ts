@@ -1,8 +1,13 @@
 /**
  * Phase 4 — Payments endpoints backed by Supabase.
- *
+ * ALIGNED WITH THE PRODUCTION SCHEMA:
+ * - orders has NO customer_name column (user_id only); names resolve
+ *   from profiles via the admin /customers endpoint.
+ * - payment_submissions.transfer_date is DATE (not TIMESTAMPTZ).
+ * - statuses use the payment_status enum values (submitted/under_review/
+ *   paid/rejected).
  * Fixes:
- * - Review requires the `approve_payments` permission (owner/admin/payment_manager).
+ * - Review requires the `approve_payments` permission.
  * - Receipt amount is compared against the order total before marking paid.
  * - Duplicate bank transfer references are rejected (DB unique index too).
  * - Orders can never flip to `paid` outside the review flow.
@@ -65,6 +70,12 @@ paymentsRouter.post('/submit', requireAuth, async (req: Request, res: Response) 
     return;
   }
 
+  // transfer_date is DATE in the schema; accept YYYY-MM-DD only.
+  const rawDate = typeof req.body?.transfer_date === 'string' ? req.body.transfer_date : '';
+  const transferDate = /^\d{4}-\d{2}-\d{2}$/.test(rawDate)
+    ? rawDate
+    : new Date().toISOString().slice(0, 10);
+
   const { data: submission, error: submitError } = await supabaseAdmin
     .from('payment_submissions')
     .insert({
@@ -73,10 +84,10 @@ paymentsRouter.post('/submit', requireAuth, async (req: Request, res: Response) 
       sender_bank: typeof req.body?.sender_bank === 'string' ? req.body.sender_bank.slice(0, 120) : null,
       transaction_reference: transactionReference,
       transferred_amount: transferredAmount,
-      transfer_date: typeof req.body?.transfer_date === 'string' ? req.body.transfer_date : new Date().toISOString(),
+      transfer_date: transferDate,
       receipt_storage_path: receiptStoragePath,
       notes: typeof req.body?.notes === 'string' ? req.body.notes.slice(0, 500) : null,
-      status: 'under_review',
+      status: 'submitted',
     })
     .select()
     .single();
@@ -98,11 +109,11 @@ paymentsRouter.post('/submit', requireAuth, async (req: Request, res: Response) 
   res.status(201).json({ submission });
 });
 
-/** GET /api/payments — admin listing of submissions under review. */
+/** GET /api/payments — admin listing of submissions. */
 paymentsRouter.get('/', requireAuth, requirePermission('approve_payments'), async (_req: Request, res: Response) => {
   const { data, error } = await supabaseAdmin
     .from('payment_submissions')
-    .select('*, orders(order_number, total_amount, user_id, customer_name)')
+    .select('*, orders(order_number, total_amount, user_id)')
     .order('created_at', { ascending: false });
   if (error) {
     res.status(500).json({ error: 'تعذر تحميل المدفوعات' });
@@ -189,7 +200,7 @@ paymentsRouter.post(
       for (const item of items ?? []) {
         const { data: files } = await supabaseAdmin
           .from('product_files')
-          .select('id, file_name, file_size, version, is_downloadable, is_active')
+          .select('id')
           .eq('product_id', item.product_id)
           .eq('is_downloadable', true)
           .eq('is_active', true);
