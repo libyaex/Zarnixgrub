@@ -20,6 +20,7 @@ import { paymentsRouter } from './server/routes/payments';
 import { uploadsRouter } from './server/routes/upload';
 import { downloadsRouter } from './server/routes/downloads';
 import { adminRouter } from './server/routes/admin';
+import { manageRouter } from './server/routes/manage';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -95,8 +96,10 @@ app.use('/api/downloads', rateLimit('downloads', 60, 60_000), downloadsRouter);
 
 // ---------------------------------------------------------------------------
 // ADMIN (Phase 6): per-route permission guards; role from DB via JWT.
+// Read endpoints (overview, lists, audit) and write endpoints (CRUD).
 // ---------------------------------------------------------------------------
 app.use('/api/admin', rateLimit('admin', 120, 60_000), adminRouter);
+app.use('/api/admin', rateLimit('manage', 60, 60_000), manageRouter);
 
 // ---------------------------------------------------------------------------
 // SPA static serving (Vite build output)
