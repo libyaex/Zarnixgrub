@@ -64,12 +64,30 @@ function MainApp() {
     };
   }, []);
 
-  // Fetch all products on mount
+  // Fetch all products on mount and merge with local storage
   useEffect(() => {
     fetch('/api/products')
       .then(res => res.json())
-      .then(data => setAllProducts(data))
-      .catch(console.error);
+      .then(data => {
+        const localProdsRaw = localStorage.getItem('zarnix_custom_products');
+        const localProds: Product[] = localProdsRaw ? JSON.parse(localProdsRaw) : [];
+        const serverList = Array.isArray(data) ? data : [];
+        const combined = [...localProds];
+        serverList.forEach(sp => {
+          if (!combined.some(cp => cp.id === sp.id)) {
+            combined.push(sp);
+          }
+        });
+        setAllProducts(combined);
+      })
+      .catch(() => {
+        const localProdsRaw = localStorage.getItem('zarnix_custom_products');
+        if (localProdsRaw) {
+          try {
+            setAllProducts(JSON.parse(localProdsRaw));
+          } catch {}
+        }
+      });
   }, []);
 
   const handleNavigate = (view: string, data?: any) => {

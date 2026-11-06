@@ -23,12 +23,21 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ initialFilter, onVie
 
   useEffect(() => {
     Promise.all([
-      fetch('/api/products').then(res => res.json()),
-      fetch('/api/categories').then(res => res.json())
+      fetch('/api/products').then(res => res.json()).catch(() => []),
+      fetch('/api/categories').then(res => res.json()).catch(() => [])
     ])
       .then(([prods, cats]) => {
-        setProducts(prods);
-        setCategories(cats);
+        const localProdsRaw = localStorage.getItem('zarnix_custom_products');
+        const localProds: Product[] = localProdsRaw ? JSON.parse(localProdsRaw) : [];
+        const serverList = Array.isArray(prods) ? prods : [];
+        const combined = [...localProds];
+        serverList.forEach(sp => {
+          if (!combined.some(cp => cp.id === sp.id)) {
+            combined.push(sp);
+          }
+        });
+        setProducts(combined);
+        setCategories(Array.isArray(cats) ? cats : []);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
