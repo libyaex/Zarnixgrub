@@ -1,21 +1,25 @@
 /**
  * server.ts — NIZAR DIGITAL (Zarnix Group) API server.
  *
- * Phase 2 rewrite of the AUTHENTICATION layer only:
+ * Phase 2–6 wiring:
  * - Removed: forgeable `x-auth-email` header trust, shared mutable
- *   `currentUser`, in-memory `activeSessions` map, and the unverified
+ *   `currentUser`, in-memory `activeSessions`, and the unverified
  *   `/api/auth/google`, `/api/auth/login`, `/api/auth/register` routes.
  * - Added: JWT-authenticated `/api/auth/me`, guarded `/api/auth/switch-role`,
- *   and Supabase as the sole identity provider.
- * - Everything else (products, orders, payments, uploads, downloads) is
- *   unchanged in this commit and is rewritten to Supabase in Phase 3+.
+ *   Supabase-backed store/orders/coupons/payments/uploads/downloads/admin
+ *   routes, and Supabase as the sole identity + storage provider.
  *
- * Migration notes are documented in server/ROUTES-MIGRATION.md.
+ * Migration notes: server/ROUTES-MIGRATION.md. Progress: PROGRESS.md.
  */
 import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { authRouter } from './server/routes/auth';
+import { storeRouter } from './server/routes/store';
+import { paymentsRouter } from './server/routes/payments';
+import { uploadsRouter } from './server/routes/upload';
+import { downloadsRouter } from './server/routes/downloads';
+import { adminRouter } from './server/routes/admin';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -38,7 +42,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// Production In-Memory Rate Limiting (auth-sensitive endpoints)
+// Production In-Memory Rate Limiting (best-effort; per instance)
 const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
 function rateLimit(prefix: string, maxRequests: number, windowMs: number) {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -68,53 +72,31 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // ---------------------------------------------------------------------------
-// AUTHENTICATION (Phase 2): Supabase JWT only — no email headers, no shared
-// server-side user state, no unverified login/register endpoints.
+// AUTH (Phase 2): Supabase JWT only — no email headers, no shared user state,
+// no unverified login/register endpoints.
 // ---------------------------------------------------------------------------
 app.use('/api/auth', rateLimit('auth', 30, 60_000), authRouter);
 
 // ---------------------------------------------------------------------------
-// LEGACY NOTE — data endpoints below this line still use in-memory storage
-// and will be migrated to Supabase in Phases 3–6. See PROGRESS.md and
-// server/ROUTES-MIGRATION.md. Until that migration completes, DO NOT merge
-// this branch into main for production traffic.
-//
-// The old handlers were removed in this commit because they granted admin
-// access from a forgeable header. To keep the app compiling, the data
-// endpoints are re-declared here as explicit 503 stubs with Arabic
-// explanations. Phase 3 restores them against Supabase with real logic.
+// STORE (Phase 3): products, categories, orders (server-priced), coupons.
 // ---------------------------------------------------------------------------
-const DATA_ENDPOINTS_STUB: Array<[string, string]> = [
-  ['GET', '/api/products'],
-  ['GET', '/api/categories'],
-  ['POST', '/api/orders'],
-  ['GET', '/api/orders'],
-  ['GET', '/api/payments'],
-  ['POST', '/api/payments/submit'],
-  ['POST', '/api/payments/review'],
-  ['GET', '/api/coupons'],
-  ['POST', '/api/coupons/validate'],
-  ['GET', '/api/services'],
-  ['POST', '/api/upload'],
-  ['GET', '/api/downloads'],
-  ['POST', '/api/downloads/:id'],
-  ['GET', '/api/admin/overview'],
-  ['GET', '/api/admin/orders'],
-  ['GET', '/api/admin/customers'],
-  ['GET', '/api/admin/downloads'],
-  ['GET', '/api/admin/audit'],
-  ['GET', '/api/admin/roles'],
-  ['GET', '/api/admin/settings'],
-];
+app.use('/api', rateLimit('store', 120, 60_000), storeRouter);
 
-for (const [method, route] of DATA_ENDPOINTS_STUB) {
-  (app as any)[method.toLowerCase()](route, (_req: Request, res: Response) => {
-    res.status(503).json({
-      error:
-        'هذا المسار قيد الترحيل إلى قاعدة البيانات الدائمة ضمن خطة إعادة التأهيل، وسيعود للعمل في المرحلة القادمة.',
-    });
-  });
-}
+// ---------------------------------------------------------------------------
+// PAYMENTS (Phase 4): submit + permission-guarded review with amount checks.
+// ---------------------------------------------------------------------------
+app.use('/api/payments', rateLimit('payments', 60, 60_000), paymentsRouter);
+
+// ---------------------------------------------------------------------------
+// UPLOADS + DOWNLOADS (Phase 5): private Storage buckets, signed URLs.
+// ---------------------------------------------------------------------------
+app.use('/api/upload', rateLimit('upload', 20, 60_000), uploadsRouter);
+app.use('/api/downloads', rateLimit('downloads', 60, 60_000), downloadsRouter);
+
+// ---------------------------------------------------------------------------
+// ADMIN (Phase 6): per-route permission guards; role from DB via JWT.
+// ---------------------------------------------------------------------------
+app.use('/api/admin', rateLimit('admin', 120, 60_000), adminRouter);
 
 // ---------------------------------------------------------------------------
 // SPA static serving (Vite build output)
