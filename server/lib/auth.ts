@@ -1,9 +1,9 @@
 /**
  * Phase 1 — Authentication & Authorization middleware.
  *
- * Replaces the insecure shared `currentUser` variable and the forgeable
- * `x-auth-email` header with per-request JWT verification. Roles are read
- * from the `profiles` table (source of truth), never from the browser.
+ * Supabase JWT is verified for every authenticated request. The role is
+ * loaded from the database on each request; browser state and identity
+ * headers are never used as authorization sources.
  */
 import type { Request, Response, NextFunction } from 'express';
 import { supabaseAdmin } from './supabaseAdmin';
@@ -17,7 +17,6 @@ export interface AuthedUser {
 }
 
 declare global {
-  // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
       user?: AuthedUser;
@@ -25,7 +24,6 @@ declare global {
   }
 }
 
-/** Permission keys shared by the RBAC layer. Keep in sync with src/types. */
 export type PermissionKey =
   | 'manage_products'
   | 'manage_orders'
@@ -40,27 +38,13 @@ export type PermissionKey =
   | 'manage_settings'
   | 'view_audit_logs';
 
-/**
- * Role → permission map. The DB role `owner` has unrestricted access.
- * `super_admin` is kept as a migration alias of the legacy in-memory role
- * so no legitimate admin is locked out during Phase 1; forging either
- * string in the browser still grants nothing because roles come from DB.
- */
-const ROLE_PERMISSIONS: Record<string, PermissionKey[] | ['*']> = {
+const ROLE_PERMISSIONS: Record<string, readonly (PermissionKey | '*')[]> = {
   owner: ['*'],
   super_admin: ['*'],
   admin: [
-    'manage_products',
-    'manage_orders',
-    'approve_payments',
-    'manage_downloads',
-    'manage_services',
-    'manage_coupons',
-    'manage_banks',
-    'manage_users',
-    'view_financial_analytics',
-    'manage_settings',
-    'view_audit_logs',
+    'manage_products', 'manage_orders', 'approve_payments', 'manage_downloads',
+    'manage_services', 'manage_coupons', 'manage_banks', 'manage_users',
+    'view_financial_analytics', 'manage_settings', 'view_audit_logs',
   ],
   product_manager: ['manage_products', 'manage_downloads'],
   payment_manager: ['approve_payments', 'manage_banks'],
@@ -68,69 +52,67 @@ const ROLE_PERMISSIONS: Record<string, PermissionKey[] | ['*']> = {
   customer: [],
 };
 
-export function permissionsFor(role: string | undefined): PermissionKey[] | ['*'] {
+export function permissionsFor(role: string | undefined): readonly (PermissionKey | '*')[] {
   return ROLE_PERMISSIONS[role ?? 'customer'] ?? [];
 }
 
-/**
- * Require a valid Supabase JWT (Authorization: Bearer <token>) and an
- * active profile. Attaches the verified user to the request — per
- * request, never shared across users.
- */
+/** Require valid Supabase JWT and active DB profile; attach per-request identity. */
 export async function requireAuth(
   req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> {
-  const header = req.headers.authorization;
-  const token = header?.startsWith('Bearer ') ? header.slice(7) : null;
-
+  const token = req.headers.authorization?.startsWith('Bearer ')
+    ? req.headers.authorization.slice('Bearer '.length).trim()
+    : '';
   if (!token) {
     res.status(401).json({ error: 'مطلوب تسجيل الدخول للمتابعة' });
     return;
   }
 
-  const { data, error } = await supabaseAdmin.auth.getUser(token);
-  if (error || !data.user) {
-    res.status(401).json({ error: 'جلسة غير صالحة أو منتهية' });
-    return;
-  }
+  try {
+    const { data, error } = await supabaseAdmin.auth.getUser(token);
+    if (error || !data.user) {
+      res.status(401).json({ error: 'جلسة غير صالحة أو منتهية' });
+      return;
+    }
 
-  const { data: profile, error: profileError } = await supabaseAdmin
-    .from('profiles')
-    .select('id, email, full_name, role, status')
-    .eq('id', data.user.id)
-    .single();
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('id, email, full_name, role, status')
+      .eq('id', data.user.id)
+      .single();
 
-  if (profileError || !profile) {
-    res.status(403).json({ error: 'لا يوجد ملف تعريف لهذا الحساب. يرجى التواصل مع الدعم.' });
-    return;
-  }
-  if (profile.status !== 'active') {
-    res.status(403).json({ error: 'هذا الحساب موقوف. يرجى التواصل مع الدعم.' });
-    return;
-  }
+    if (profileError || !profile) {
+      res.status(403).json({ error: 'لا يوجد ملف تعريف لهذا الحساب. يرجى التواصل مع الدعم.' });
+      return;
+    }
+    if (profile.status !== 'active') {
+      res.status(403).json({ error: 'هذا الحساب موقوف. يرجى التواصل مع الدعم.' });
+      return;
+    }
 
-  req.user = {
-    id: profile.id,
-    email: profile.email,
-    full_name: profile.full_name,
-    role: profile.role,
-    status: profile.status,
-  };
-  next();
+    req.user = {
+      id: profile.id,
+      email: profile.email,
+      full_name: profile.full_name,
+      role: profile.role,
+      status: profile.status,
+    };
+    next();
+  } catch (error) {
+    // Express 4 does not automatically forward rejected async middleware promises.
+    next(error);
+  }
 }
 
-/** Require one of the listed roles (checked against DB role, not the browser). */
 export function requireRole(...roles: string[]) {
   return (req: Request, res: Response, next: NextFunction): void => {
     if (!req.user) {
       res.status(401).json({ error: 'مطلوب تسجيل الدخول للمتابعة' });
       return;
     }
-    const role = req.user.role;
-    const allowed = role === 'owner' || role === 'super_admin' || roles.includes(role);
-    if (!allowed) {
+    if (req.user.role !== 'owner' && req.user.role !== 'super_admin' && !roles.includes(req.user.role)) {
       res.status(403).json({ error: 'ليست لديك صلاحية لهذا الإجراء' });
       return;
     }
@@ -138,16 +120,13 @@ export function requireRole(...roles: string[]) {
   };
 }
 
-/** Require a specific permission for the authenticated user. */
-export function requirePermission(perm: PermissionKey) {
+export function requirePermission(permission: PermissionKey) {
   return (req: Request, res: Response, next: NextFunction): void => {
     if (!req.user) {
       res.status(401).json({ error: 'مطلوب تسجيل الدخول للمتابعة' });
       return;
     }
-    const perms = permissionsFor(req.user.role);
-    const allowed = perms.includes('*') || perms.includes(perm);
-    if (!allowed) {
+    if (!permissionsFor(req.user.role).some((granted) => granted === '*' || granted === permission)) {
       res.status(403).json({ error: 'ليست لديك صلاحية لهذا الإجراء' });
       return;
     }
