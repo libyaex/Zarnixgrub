@@ -23,6 +23,31 @@ storeRouter.get('/products', async (_req: Request, res: Response) => {
   res.json(data ?? []);
 });
 
+/** GET /api/products/:slug — public: single published product. */
+storeRouter.get('/products/:slug', async (req: Request, res: Response) => {
+  const { data: bySlug, error: slugError } = await supabaseAdmin
+    .from('products')
+    .select('*, product_options(*)')
+    .eq('slug', req.params.slug)
+    .eq('status', 'published')
+    .maybeSingle();
+  if (!slugError && bySlug) {
+    res.json(bySlug);
+    return;
+  }
+  const { data: byId, error: idError } = await supabaseAdmin
+    .from('products')
+    .select('*, product_options(*)')
+    .eq('id', req.params.slug)
+    .eq('status', 'published')
+    .maybeSingle();
+  if (idError || !byId) {
+    res.status(404).json({ error: 'لم يتم العثور على المنتج' });
+    return;
+  }
+  res.json(byId);
+});
+
 /** GET /api/categories — public: active categories only. */
 storeRouter.get('/categories', async (_req: Request, res: Response) => {
   const { data, error } = await supabaseAdmin
@@ -32,6 +57,34 @@ storeRouter.get('/categories', async (_req: Request, res: Response) => {
     .order('sort_order');
   if (error) {
     res.status(500).json({ error: 'تعذر تحميل التصنيفات حالياً' });
+    return;
+  }
+  res.json(data ?? []);
+});
+
+/** GET /api/services — public: active services only. */
+storeRouter.get('/services', async (_req: Request, res: Response) => {
+  const { data, error } = await supabaseAdmin
+    .from('services')
+    .select('*')
+    .eq('is_active', true)
+    .order('created_at', { ascending: false });
+  if (error) {
+    res.status(500).json({ error: 'تعذر تحميل الخدمات حالياً' });
+    return;
+  }
+  res.json(data ?? []);
+});
+
+/** GET /api/banks — public: active bank accounts for the transfer page. */
+storeRouter.get('/banks', async (_req: Request, res: Response) => {
+  const { data, error } = await supabaseAdmin
+    .from('bank_accounts')
+    .select('id, bank_name, account_name, account_number, iban')
+    .eq('is_active', true)
+    .order('created_at');
+  if (error) {
+    res.status(500).json({ error: 'تعذر تحميل الحسابات البنكية' });
     return;
   }
   res.json(data ?? []);
@@ -110,6 +163,7 @@ storeRouter.post('/orders', requireAuth, async (req: Request, res: Response) => 
   }
 
   let discountAmount = 0;
+  let appliedCouponId: string | null = null;
   const couponCode = typeof req.body?.coupon_code === 'string' ? req.body.coupon_code.trim() : '';
   if (couponCode) {
     const { data: coupon, error: couponError } = await supabaseAdmin
@@ -127,6 +181,7 @@ storeRouter.post('/orders', requireAuth, async (req: Request, res: Response) => 
       coupon.used_count < coupon.max_uses &&
       subtotal >= Number(coupon.minimum_order);
     if (valid && coupon) {
+      appliedCouponId = coupon.id;
       discountAmount =
         coupon.discount_type === 'percentage'
           ? (subtotal * Number(coupon.discount_value)) / 100
@@ -153,6 +208,7 @@ storeRouter.post('/orders', requireAuth, async (req: Request, res: Response) => 
       payment_status: 'unsubmitted',
       order_status: 'pending',
       coupon_code: couponCode || null,
+      coupon_id: appliedCouponId,
       customer_notes: typeof req.body?.customer_notes === 'string' ? req.body.customer_notes.slice(0, 500) : null,
     })
     .select()
@@ -170,6 +226,21 @@ storeRouter.post('/orders', requireAuth, async (req: Request, res: Response) => 
     await supabaseAdmin.from('orders').delete().eq('id', order.id);
     res.status(500).json({ error: 'تعذر حفظ عناصر الطلب' });
     return;
+  }
+
+  // Increment coupon usage only after the order is durably created.
+  if (appliedCouponId) {
+    const { data: coupon } = await supabaseAdmin
+      .from('coupons')
+      .select('used_count')
+      .eq('id', appliedCouponId)
+      .single();
+    if (coupon) {
+      await supabaseAdmin
+        .from('coupons')
+        .update({ used_count: coupon.used_count + 1 })
+        .eq('id', appliedCouponId);
+    }
   }
 
   res.status(201).json({ order: { ...order, items: itemsWithOrder } });
