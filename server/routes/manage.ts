@@ -12,10 +12,13 @@
  * Every mutation requires authentication plus a specific permission and
  * records an audit_logs row. audit_logs.details is JSONB and
  * audit_logs has admin_id (auth.users FK) — no admin_name column.
+ *
+ * ESM NOTE: internal imports carry explicit `.ts` extensions — required
+ * by Node ESM on Vercel (ERR_MODULE_NOT_FOUND otherwise).
  */
 import { Router, type Request, type Response } from 'express';
-import { supabaseAdmin } from '../lib/supabaseAdmin';
-import { requireAuth, requirePermission } from '../lib/auth';
+import { supabaseAdmin } from '../lib/supabaseAdmin.ts';
+import { requireAuth, requirePermission } from '../lib/auth.ts';
 
 export const manageRouter = Router();
 
