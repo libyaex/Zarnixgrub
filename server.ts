@@ -9,9 +9,8 @@
  *   Supabase-backed store/orders/coupons/payments/uploads/downloads/admin
  *   routes, and Supabase as the sole identity + storage provider.
  *
- * ESM FIX: Node ESM requires explicit `.ts` extensions on all relative
- * imports (Vercel runtime resolves the compiled server.js against the
- * original source tree).
+ * ESM NOTE: Node ESM requires explicit file extensions on all relative
+ * imports (ERR_MODULE_NOT_FOUND on Vercel otherwise).
  *
  * Migration notes: server/ROUTES-MIGRATION.md. Progress: PROGRESS.md.
  */
@@ -21,7 +20,7 @@ import { fileURLToPath } from 'url';
 import { authRouter } from './server/routes/auth.ts';
 import { storeRouter } from './server/routes/store.ts';
 import { paymentsRouter } from './server/routes/payments.ts';
-import { uploadsRouter } from './server/routes/upload.ts';
+import { uploadRouter } from './server/routes/upload.ts';
 import { downloadsRouter } from './server/routes/downloads.ts';
 import { adminRouter } from './server/routes/admin.ts';
 import { manageRouter } from './server/routes/manage.ts';
@@ -95,7 +94,7 @@ app.use('/api/payments', rateLimit('payments', 60, 60_000), paymentsRouter);
 // ---------------------------------------------------------------------------
 // UPLOADS + DOWNLOADS (Phase 5): private Storage buckets, signed URLs.
 // ---------------------------------------------------------------------------
-app.use('/api/upload', rateLimit('upload', 20, 60_000), uploadsRouter);
+app.use('/api/upload', rateLimit('upload', 20, 60_000), uploadRouter);
 app.use('/api/downloads', rateLimit('downloads', 60, 60_000), downloadsRouter);
 
 // ---------------------------------------------------------------------------
