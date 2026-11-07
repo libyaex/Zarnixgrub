@@ -7,10 +7,12 @@
  *   installation/customization addons represented by product_options
  *   (option_type 'addon') on published products.
  * Prices are ALWAYS recalculated server-side from the database.
+ *
+ * ESM FIX: internal imports carry explicit `.ts` extensions.
  */
 import { Router, type Request, type Response } from 'express';
-import { supabaseAdmin } from '../lib/supabaseAdmin';
-import { requireAuth } from '../lib/auth';
+import { supabaseAdmin } from '../lib/supabaseAdmin.ts';
+import { requireAuth } from '../lib/auth.ts';
 
 export const storeRouter = Router();
 
