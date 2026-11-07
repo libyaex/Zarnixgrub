@@ -1,8 +1,10 @@
 /**
  * Phase 5 — Secure downloads backed by Supabase Storage.
- *
+ * ALIGNED WITH THE PRODUCTION SCHEMA:
+ * - download_logs has `timestamp` (not created_at) and references orders/files.
+ * - Entitlements reference auth.users directly.
  * Fixes:
- * - No fake 45MB placeholder files: entitlements point to real product_files.
+ * - No fake placeholder files: entitlements point to real product_files.
  * - Download URLs are SIGNED and expire in 5 minutes; storage paths are
  *   never exposed to the browser.
  * - Download attempts are counted and logged; limits are enforced.
@@ -115,6 +117,7 @@ downloadsRouter.post('/:id', requireAuth, async (req: Request, res: Response) =>
     return;
   }
 
+  // Schema: download_logs uses `timestamp` (default NOW()), not created_at.
   await supabaseAdmin.from('download_logs').insert({
     entitlement_id: ent.id,
     user_id: req.user!.id,

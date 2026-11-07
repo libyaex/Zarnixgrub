@@ -1,11 +1,12 @@
 /**
  * api/index.ts — Vercel serverless entry point.
  *
- * Phase 1 NOTE: this now imports the app from server.ts exactly as
- * before (no behavior change in this commit). Phase 2 will rewire the
- * legacy in-memory routes to the Supabase-backed modules under
- * server/lib and server/routes without changing the public API paths.
+ * CRITICAL: import with the explicit `../server.ts` path. The repo now
+ * contains a `server/` directory (server/lib, server/routes); Node ESM
+ * cannot resolve directory imports, so `from '../server'` was resolving
+ * to /var/task/server (the directory) and crashing every serverless
+ * invocation with ERR_UNSUPPORTED_DIR_IMPORT.
  */
-import app from '../server';
+import app from '../server.ts';
 
 export default app;
