@@ -4,9 +4,12 @@
  * Supabase JWT is verified for every authenticated request. The role is
  * loaded from the database on each request; browser state and identity
  * headers are never used as authorization sources.
+ *
+ * ESM NOTE: internal imports carry explicit `.ts` extensions — required
+ * by Node ESM on Vercel (ERR_MODULE_NOT_FOUND otherwise).
  */
 import type { Request, Response, NextFunction } from 'express';
-import { supabaseAdmin } from './supabaseAdmin';
+import { supabaseAdmin } from './supabaseAdmin.ts';
 
 export interface AuthedUser {
   id: string;
