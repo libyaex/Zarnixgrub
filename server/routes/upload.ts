@@ -6,10 +6,12 @@
  * - Receipts go to the private `payment_receipts` bucket; project files
  *   to the private `project_files` bucket. Public assets are NOT accepted.
  * - Files are validated by type and size before upload.
+ *
+ * ESM FIX: internal imports carry explicit `.ts` extensions.
  */
 import { Router, type Request, type Response } from 'express';
-import { supabaseAdmin } from '../lib/supabaseAdmin';
-import { requireAuth } from '../lib/auth';
+import { supabaseAdmin } from '../lib/supabaseAdmin.ts';
+import { requireAuth } from '../lib/auth.ts';
 
 export const uploadRouter = Router();
 
