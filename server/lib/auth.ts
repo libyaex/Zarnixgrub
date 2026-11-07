@@ -1,12 +1,10 @@
 /**
  * Phase 1 — Authentication & Authorization middleware.
- *
- * Supabase JWT is verified for every authenticated request. The role is
- * loaded from the database on each request; browser state and identity
- * headers are never used as authorization sources.
+ * ESM FIX: internal import now carries an explicit `.ts` extension,
+ * required by Node ESM on Vercel (fixes ERR_MODULE_NOT_FOUND).
  */
 import type { Request, Response, NextFunction } from 'express';
-import { supabaseAdmin } from './supabaseAdmin';
+import { supabaseAdmin } from './supabaseAdmin.ts';
 
 export interface AuthedUser {
   id: string;
