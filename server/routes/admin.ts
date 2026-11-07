@@ -6,10 +6,12 @@
  * - download_entitlements.user_id references auth.users (same).
  * Every route requires authentication plus a specific permission; the
  * role always comes from the verified JWT + profiles table.
+ *
+ * ESM FIX: internal imports carry explicit `.ts` extensions.
  */
 import { Router, type Request, type Response } from 'express';
-import { supabaseAdmin } from '../lib/supabaseAdmin';
-import { requireAuth, requirePermission, permissionsFor } from '../lib/auth';
+import { supabaseAdmin } from '../lib/supabaseAdmin.ts';
+import { requireAuth, requirePermission, permissionsFor } from '../lib/auth.ts';
 
 export const adminRouter = Router();
 
