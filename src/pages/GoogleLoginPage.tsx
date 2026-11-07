@@ -8,7 +8,7 @@ interface GoogleLoginPageProps {
 }
 
 export const GoogleLoginPage: React.FC<GoogleLoginPageProps> = ({ onSuccess }) => {
-  const { loginWithGoogle } = useAuth();
+  const { authError, logout } = useAuth();
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -17,10 +17,9 @@ export const GoogleLoginPage: React.FC<GoogleLoginPageProps> = ({ onSuccess }) =
     setLoading(true);
     try {
       if (supabase) {
-        // Open the REAL official Google Accounts selection window!
-        const redirectUrl = window.location.origin.includes('localhost')
-          ? 'https://zarnixgrub.vercel.app'
-          : window.location.origin;
+        // Always return to the origin the user is on (the old localhost -> vercel
+        // override sent the session to another domain and caused a login loop).
+        const redirectUrl = window.location.origin;
 
         const { error } = await supabase.auth.signInWithOAuth({
           provider: 'google',
@@ -94,9 +93,17 @@ export const GoogleLoginPage: React.FC<GoogleLoginPageProps> = ({ onSuccess }) =
 
           {/* Official Google Sign-In Button */}
           <div className="space-y-3 pt-2">
-            {errorMsg && (
+            {(errorMsg || authError) && (
               <div className="p-3.5 rounded-xl bg-rose-950/70 border border-rose-800 text-rose-300 text-xs leading-relaxed text-center font-medium">
-                {errorMsg}
+                <div>{errorMsg || authError}</div>
+                {authError && !errorMsg && (
+                  <button
+                    onClick={() => { void logout(); }}
+                    className="mt-2 underline text-rose-200 cursor-pointer"
+                  >
+                    تسجيل الخروج وإعادة المحاولة
+                  </button>
+                )}
               </div>
             )}
             <button

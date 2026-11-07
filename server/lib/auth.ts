@@ -9,7 +9,7 @@
  * by Node ESM on Vercel (ERR_MODULE_NOT_FOUND otherwise).
  */
 import type { Request, Response, NextFunction } from 'express';
-import { supabaseAdmin } from './supabaseAdmin.ts';
+import { supabaseAdmin, isSupabaseConfigured } from './supabaseAdmin.ts';
 
 export interface AuthedUser {
   id: string;
@@ -59,7 +59,19 @@ export function permissionsFor(role: string | undefined): readonly (PermissionKe
   return ROLE_PERMISSIONS[role ?? 'customer'] ?? [];
 }
 
-/** Require valid Supabase JWT and active DB profile; attach per-request identity. */
+/**
+ * Require a valid Supabase JWT and an active DB profile; attach the
+ * per-request identity.
+ *
+ * Self-healing: a user who authenticated with Google BEFORE the
+ * auto-provision trigger existed (or whose trigger failed) has an
+ * auth.users row but no profiles row. That used to answer 403 and the UI
+ * bounced back to the login page forever. The profile is now created on
+ * first authenticated request (role always 'customer', except the single
+ * bootstrap owner named in OWNER_EMAIL with a Google-verified email).
+ *
+ * Every failure carries a machine-readable `code` so the UI can explain it.
+ */
 export async function requireAuth(
   req: Request,
   res: Response,
@@ -69,29 +81,93 @@ export async function requireAuth(
     ? req.headers.authorization.slice('Bearer '.length).trim()
     : '';
   if (!token) {
-    res.status(401).json({ error: 'مطلوب تسجيل الدخول للمتابعة' });
+    res.status(401).json({ error: 'مطلوب تسجيل الدخول للمتابعة', code: 'no_token' });
+    return;
+  }
+  if (!isSupabaseConfigured) {
+    res.status(500).json({
+      error: 'الخادم غير مهيأ: متغيرات Supabase (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY) غير مضبوطة في الاستضافة.',
+      code: 'server_not_configured',
+    });
     return;
   }
 
   try {
     const { data, error } = await supabaseAdmin.auth.getUser(token);
     if (error || !data.user) {
-      res.status(401).json({ error: 'جلسة غير صالحة أو منتهية' });
+      res.status(401).json({
+        error: 'جلسة غير صالحة أو منتهية. إن تكرر ذلك فتأكد أن الخادم والواجهة يستخدمان نفس مشروع Supabase.',
+        code: 'invalid_session',
+      });
       return;
     }
+    const authUser = data.user;
 
-    const { data: profile, error: profileError } = await supabaseAdmin
+    const { data: found, error: lookupError } = await supabaseAdmin
       .from('profiles')
       .select('id, email, full_name, role, status')
-      .eq('id', data.user.id)
-      .single();
-
-    if (profileError || !profile) {
-      res.status(403).json({ error: 'لا يوجد ملف تعريف لهذا الحساب. يرجى التواصل مع الدعم.' });
+      .eq('id', authUser.id)
+      .maybeSingle();
+    if (lookupError) {
+      console.error('[auth] profile lookup failed:', lookupError.message);
+      res.status(500).json({ error: 'تعذر قراءة الملف الشخصي من قاعدة البيانات', code: 'profile_lookup_failed' });
       return;
     }
+
+    let profile = found;
+    if (!profile) {
+      const email = authUser.email ?? '';
+      if (!email) {
+        res.status(403).json({ error: 'حساب Google لا يحتوي بريداً إلكترونياً', code: 'no_email' });
+        return;
+      }
+      const { data: clash } = await supabaseAdmin
+        .from('profiles')
+        .select('id')
+        .eq('email', email)
+        .maybeSingle();
+      if (clash) {
+        res.status(409).json({
+          error: 'يوجد ملف شخصي بنفس البريد مرتبط بحساب دخول آخر. يلزم حذفه أو دمجه يدوياً من لوحة Supabase.',
+          code: 'profile_email_conflict',
+        });
+        return;
+      }
+
+      let role = 'customer';
+      const ownerEmail = (process.env.OWNER_EMAIL || '').trim().toLowerCase();
+      if (ownerEmail && email.toLowerCase() === ownerEmail && authUser.email_confirmed_at) {
+        const { count } = await supabaseAdmin
+          .from('profiles')
+          .select('id', { count: 'exact', head: true })
+          .eq('role', 'owner');
+        if ((count ?? 0) === 0) role = 'owner';
+      }
+
+      const meta = (authUser.user_metadata ?? {}) as Record<string, unknown>;
+      const fullName =
+        (typeof meta.full_name === 'string' && meta.full_name) ||
+        (typeof meta.name === 'string' && meta.name) ||
+        email.split('@')[0];
+
+      const { data: created, error: createError } = await supabaseAdmin
+        .from('profiles')
+        .insert({ id: authUser.id, email, full_name: fullName, role, status: 'active' })
+        .select('id, email, full_name, role, status')
+        .single();
+      if (createError || !created) {
+        console.error('[auth] profile auto-create failed:', createError?.message);
+        res.status(500).json({
+          error: 'تعذر إنشاء الملف الشخصي تلقائياً. تأكد من تنفيذ supabase/schema.sql أولاً.',
+          code: 'profile_create_failed',
+        });
+        return;
+      }
+      profile = created;
+    }
+
     if (profile.status !== 'active') {
-      res.status(403).json({ error: 'هذا الحساب موقوف. يرجى التواصل مع الدعم.' });
+      res.status(403).json({ error: 'هذا الحساب موقوف. يرجى التواصل مع الدعم.', code: 'account_suspended' });
       return;
     }
 
@@ -104,7 +180,7 @@ export async function requireAuth(
     };
     next();
   } catch (error) {
-    // Express 4 does not automatically forward rejected async middleware promises.
+    // Express 4 does not forward rejected async middleware promises.
     next(error);
   }
 }
