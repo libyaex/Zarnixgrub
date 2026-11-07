@@ -24,6 +24,7 @@ import { uploadRouter } from './server/routes/upload.ts';
 import { downloadsRouter } from './server/routes/downloads.ts';
 import { adminRouter } from './server/routes/admin.ts';
 import { manageRouter } from './server/routes/manage.ts';
+import { isSupabaseConfigured, SUPABASE_HOST } from './server/lib/supabaseAdmin.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -76,6 +77,21 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // ---------------------------------------------------------------------------
+// HEALTH (diagnostics): booleans + project host only — never secrets.
+// Open /api/health on the deployed site to see why sign-in fails.
+// ---------------------------------------------------------------------------
+app.get('/api/health', (_req: Request, res: Response) => {
+  res.json({
+    ok: isSupabaseConfigured,
+    supabase_configured: isSupabaseConfigured,
+    supabase_host: SUPABASE_HOST || null,
+    has_service_role_key: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
+    has_owner_email: Boolean(process.env.OWNER_EMAIL),
+    node_env: process.env.NODE_ENV || null,
+  });
+});
+
+// ---------------------------------------------------------------------------
 // AUTH (Phase 2): Supabase JWT only — no email headers, no shared user state,
 // no unverified login/register endpoints.
 // ---------------------------------------------------------------------------
@@ -115,6 +131,17 @@ app.get('*', (req: Request, res: Response) => {
     return res.status(404).json({ error: 'المسار غير موجود' });
   }
   res.sendFile(path.join(distDir, 'index.html'));
+});
+
+// Always answer API errors as JSON (Express 4 would send an HTML stack page,
+// which the UI could not parse and reported as a silent login failure).
+app.use((err: unknown, req: Request, res: Response, next: NextFunction) => {
+  if (res.headersSent) return next(err);
+  console.error('[api] unhandled error:', err);
+  if (req.path.startsWith('/api/')) {
+    return res.status(500).json({ error: 'خطأ داخلي في الخادم', code: 'internal_error' });
+  }
+  next(err);
 });
 
 if (!isProduction) {
