@@ -11,10 +11,12 @@
  * - Receipt amount is compared against the order total before marking paid.
  * - Duplicate bank transfer references are rejected (DB unique index too).
  * - Orders can never flip to `paid` outside the review flow.
+ *
+ * ESM FIX: internal imports carry explicit `.ts` extensions.
  */
 import { Router, type Request, type Response } from 'express';
-import { supabaseAdmin } from '../lib/supabaseAdmin';
-import { requireAuth, requirePermission } from '../lib/auth';
+import { supabaseAdmin } from '../lib/supabaseAdmin.ts';
+import { requireAuth, requirePermission } from '../lib/auth.ts';
 
 export const paymentsRouter = Router();
 
