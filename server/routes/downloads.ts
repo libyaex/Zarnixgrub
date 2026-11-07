@@ -8,10 +8,12 @@
  * - Download URLs are SIGNED and expire in 5 minutes; storage paths are
  *   never exposed to the browser.
  * - Download attempts are counted and logged; limits are enforced.
+ *
+ * ESM FIX: internal imports carry explicit `.ts` extensions.
  */
 import { Router, type Request, type Response } from 'express';
-import { supabaseAdmin } from '../lib/supabaseAdmin';
-import { requireAuth } from '../lib/auth';
+import { supabaseAdmin } from '../lib/supabaseAdmin.ts';
+import { requireAuth } from '../lib/auth.ts';
 
 export const downloadsRouter = Router();
 
