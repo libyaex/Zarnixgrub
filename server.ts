@@ -9,18 +9,21 @@
  *   Supabase-backed store/orders/coupons/payments/uploads/downloads/admin
  *   routes, and Supabase as the sole identity + storage provider.
  *
+ * ESM NOTE: Node ESM requires explicit file extensions on all relative
+ * imports (ERR_MODULE_NOT_FOUND on Vercel otherwise).
+ *
  * Migration notes: server/ROUTES-MIGRATION.md. Progress: PROGRESS.md.
  */
 import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { authRouter } from './server/routes/auth';
-import { storeRouter } from './server/routes/store';
-import { paymentsRouter } from './server/routes/payments';
-import { uploadsRouter } from './server/routes/upload';
-import { downloadsRouter } from './server/routes/downloads';
-import { adminRouter } from './server/routes/admin';
-import { manageRouter } from './server/routes/manage';
+import { authRouter } from './server/routes/auth.ts';
+import { storeRouter } from './server/routes/store.ts';
+import { paymentsRouter } from './server/routes/payments.ts';
+import { uploadsRouter } from './server/routes/upload.ts';
+import { downloadsRouter } from './server/routes/downloads.ts';
+import { adminRouter } from './server/routes/admin.ts';
+import { manageRouter } from './server/routes/manage.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

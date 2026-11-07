@@ -6,10 +6,13 @@
  * - download_entitlements.user_id references auth.users (same).
  * Every route requires authentication plus a specific permission; the
  * role always comes from the verified JWT + profiles table.
+ *
+ * ESM NOTE: internal imports carry explicit `.ts` extensions — required
+ * by Node ESM on Vercel (ERR_MODULE_NOT_FOUND otherwise).
  */
 import { Router, type Request, type Response } from 'express';
-import { supabaseAdmin } from '../lib/supabaseAdmin';
-import { requireAuth, requirePermission, permissionsFor } from '../lib/auth';
+import { supabaseAdmin } from '../lib/supabaseAdmin.ts';
+import { requireAuth, requirePermission, permissionsFor } from '../lib/auth.ts';
 
 export const adminRouter = Router();
 
