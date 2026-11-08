@@ -8,6 +8,9 @@
  * - Added: JWT-authenticated `/api/auth/me`, guarded `/api/auth/switch-role`,
  *   Supabase-backed store/orders/coupons/payments/uploads/downloads/admin
  *   routes, and Supabase as the sole identity + storage provider.
+ * - Compatibility: legacy dashboard endpoints (stats, audit-logs, staff,
+ *   bank-accounts, all-entitlements, logs, settings, coupons, orders)
+ *   are served by server/routes/compat.ts with the same permission guards.
  *
  * ESM NOTE: Node ESM requires explicit file extensions on all relative
  * imports (ERR_MODULE_NOT_FOUND on Vercel otherwise).
@@ -24,7 +27,9 @@ import { uploadRouter } from './server/routes/upload.ts';
 import { downloadsRouter } from './server/routes/downloads.ts';
 import { adminRouter } from './server/routes/admin.ts';
 import { manageRouter } from './server/routes/manage.ts';
+import { compatRouter } from './server/routes/compat.ts';
 import { isSupabaseConfigured, SUPABASE_HOST } from './server/lib/supabaseAdmin.ts';
+import { supabaseAdmin } from './server/lib/supabaseAdmin.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -53,8 +58,7 @@ function rateLimit(prefix: string, maxRequests: number, windowMs: number) {
   return (req: Request, res: Response, next: NextFunction) => {
     const clientIp =
       (req.headers['x-forwarded-for'] as string) ||
-      req.ip ||
-      req.socket.remoteAddress ||
+      req.ip || req.socket.remoteAddress ||
       '127.0.0.1';
     const key = `${prefix}:${clientIp}`;
     const now = Date.now();
@@ -78,7 +82,6 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // ---------------------------------------------------------------------------
 // HEALTH (diagnostics): booleans + project host only — never secrets.
-// Open /api/health on the deployed site to see why sign-in fails.
 // ---------------------------------------------------------------------------
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({
@@ -92,10 +95,16 @@ app.get('/api/health', (_req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// AUTH (Phase 2): Supabase JWT only — no email headers, no shared user state,
-// no unverified login/register endpoints.
+// AUTH (Phase 2): Supabase JWT only.
 // ---------------------------------------------------------------------------
 app.use('/api/auth', rateLimit('auth', 30, 60_000), authRouter);
+
+// ---------------------------------------------------------------------------
+// COMPATIBILITY (legacy dashboard endpoints, permission-guarded per route).
+// Mounted BEFORE the store router so admin-only URLs like /api/orders,
+// /api/coupons and /api/settings are answered by the guarded handlers.
+// ---------------------------------------------------------------------------
+app.use('/api', rateLimit('compat', 120, 60_000), compatRouter);
 
 // ---------------------------------------------------------------------------
 // STORE (Phase 3): products, categories, orders (server-priced), coupons.
@@ -103,9 +112,34 @@ app.use('/api/auth', rateLimit('auth', 30, 60_000), authRouter);
 app.use('/api', rateLimit('store', 120, 60_000), storeRouter);
 
 // ---------------------------------------------------------------------------
-// PAYMENTS (Phase 4): submit + permission-guarded review with amount checks.
+// PAYMENTS (Phase 4): translate the legacy dashboard review body
+// { order_id, action } into the canonical { submission_id, decision } shape.
 // ---------------------------------------------------------------------------
-app.use('/api/payments', rateLimit('payments', 60, 60_000), paymentsRouter);
+app.use(
+  '/api/payments',
+  rateLimit('payments', 60, 60_000),
+  async (req: Request, _res: Response, next: NextFunction) => {
+    if (req.path === '/review' && req.method === 'POST' && req.body && typeof req.body === 'object') {
+      const body = req.body as Record<string, unknown>;
+      const action = String(body.action ?? '').toLowerCase();
+      if (action === 'approve') body.decision = 'approve';
+      if (action === 'reject') body.decision = 'reject';
+      const legacyOrderId = String(body.order_id ?? '');
+      if (legacyOrderId && !body.submission_id) {
+        const { data: submission } = await supabaseAdmin
+          .from('payment_submissions')
+          .select('id')
+          .eq('order_id', legacyOrderId)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (submission) body.submission_id = submission.id;
+      }
+    }
+    next();
+  },
+  paymentsRouter
+);
 
 // ---------------------------------------------------------------------------
 // UPLOADS + DOWNLOADS (Phase 5): private Storage buckets, signed URLs.
@@ -115,7 +149,6 @@ app.use('/api/downloads', rateLimit('downloads', 60, 60_000), downloadsRouter);
 
 // ---------------------------------------------------------------------------
 // ADMIN (Phase 6): per-route permission guards; role from DB via JWT.
-// Read endpoints (overview, lists, audit) and write endpoints (CRUD).
 // ---------------------------------------------------------------------------
 app.use('/api/admin', rateLimit('admin', 120, 60_000), adminRouter);
 app.use('/api/admin', rateLimit('manage', 60, 60_000), manageRouter);
