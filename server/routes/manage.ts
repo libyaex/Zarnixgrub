@@ -13,6 +13,12 @@
  * records an audit_logs row. audit_logs.details is JSONB and
  * audit_logs has admin_id (auth.users FK) — no admin_name column.
  *
+ * THIS FILE ADDS the missing write surface the dashboard needs:
+ * - POST   /products/:id/files       — register an uploaded product file
+ * - DELETE /products/:id/files/:fid — deactivate a product file
+ * - PUT    /products/:id/options     — replace a product's option set
+ * - DELETE /banks/:id                — deactivate a payment account
+ *
  * ESM NOTE: internal imports carry explicit `.ts` extensions — required
  * by Node ESM on Vercel (ERR_MODULE_NOT_FOUND otherwise).
  */
@@ -52,8 +58,7 @@ const bool = (v: unknown, fallback = false): boolean =>
   typeof v === 'boolean' ? v : fallback;
 
 // ---------------------------------------------------------------------------
-// PRODUCTS (schema: name, slug, short_description, full_description,
-// category_id, base_price, main_image, status, is_featured, ...)
+// PRODUCTS
 // ---------------------------------------------------------------------------
 manageRouter.post('/products', requirePermission('manage_products'), async (req: Request, res: Response) => {
   const body = req.body ?? {};
@@ -94,6 +99,7 @@ manageRouter.put('/products/:id', requirePermission('manage_products'), async (r
   if (['draft', 'published', 'archived'].includes(String(body.status))) updates.status = body.status;
   if (typeof body.is_featured === 'boolean') updates.is_featured = body.is_featured;
   if (str(body.installation_guide, 5000)) updates.installation_guide = str(body.installation_guide, 5000);
+  if (str(body.slug, 200)) updates.slug = str(body.slug, 200);
 
   const { data, error } = await supabaseAdmin.from('products').update(updates).eq('id', req.params.id).select().single();
   if (error || !data) {
@@ -118,7 +124,104 @@ manageRouter.delete('/products/:id', requirePermission('manage_products'), async
 });
 
 // ---------------------------------------------------------------------------
-// CATEGORIES (schema: name, slug, description, image_path, sort_order, is_active)
+// PRODUCT OPTIONS — PUT /products/:id/options replaces the option set.
+// ---------------------------------------------------------------------------
+manageRouter.put('/products/:id/options', requirePermission('manage_products'), async (req: Request, res: Response) => {
+  const incoming: unknown[] = Array.isArray(req.body?.options) ? req.body.options : [];
+  const { data: product } = await supabaseAdmin
+    .from('products')
+    .select('id')
+    .eq('id', req.params.id)
+    .maybeSingle();
+  if (!product) {
+    res.status(404).json({ error: 'لم يتم العثور على المنتج' });
+    return;
+  }
+
+  const rows = incoming
+    .map((raw) => {
+      const o = (raw ?? {}) as Record<string, unknown>;
+      return {
+        product_id: req.params.id,
+        name: str(o.name, 200),
+        description: str(o.description, 500),
+        price: num(o.price) ?? 0,
+        option_type: ['license', 'addon'].includes(String(o.option_type)) ? String(o.option_type) : 'addon',
+        is_active: bool(o.is_active, true),
+        is_required: bool(o.is_required),
+      };
+    })
+    .filter((o) => o.name);
+
+  await supabaseAdmin.from('product_options').delete().eq('product_id', req.params.id);
+  if (rows.length > 0) {
+    const { error } = await supabaseAdmin.from('product_options').insert(rows);
+    if (error) {
+      res.status(500).json({ error: 'تعذر حفظ خيارات المنتج' });
+      return;
+    }
+  }
+  await audit(req, 'update', 'product_options', req.params.id, { count: rows.length });
+  res.json({ options: rows.length });
+});
+
+// ---------------------------------------------------------------------------
+// PRODUCT FILES — register/deactivate the deliverable files.
+// The file itself is uploaded via /api/upload (kind 'project'); this
+// route creates the product_files row that download entitlements point to.
+// ---------------------------------------------------------------------------
+manageRouter.post('/products/:id/files', requirePermission('manage_products'), async (req: Request, res: Response) => {
+  const body = req.body ?? {};
+  const fileName = str(body.file_name, 200);
+  const storagePath = str(body.storage_path, 300);
+  if (!fileName || !storagePath) {
+    res.status(400).json({ error: 'اسم الملف ومسار التخزين مطلوبان' });
+    return;
+  }
+  const { data: product } = await supabaseAdmin
+    .from('products')
+    .select('id')
+    .eq('id', req.params.id)
+    .maybeSingle();
+  if (!product) {
+    res.status(404).json({ error: 'لم يتم العثور على المنتج' });
+    return;
+  }
+  const payload = {
+    product_id: req.params.id,
+    file_name: fileName,
+    storage_path: storagePath,
+    file_size: num(body.file_size) ?? 0,
+    version: str(body.version, 40) ?? '1.0.0',
+    mime_type: str(body.mime_type, 120) ?? 'application/octet-stream',
+    is_downloadable: bool(body.is_downloadable, true),
+    is_active: true,
+  };
+  const { data, error } = await supabaseAdmin.from('product_files').insert(payload).select().single();
+  if (error || !data) {
+    res.status(500).json({ error: 'تعذر تسجيل ملف المنتج' });
+    return;
+  }
+  await audit(req, 'create', 'product_file', data.id, { file_name: fileName });
+  res.status(201).json({ file: data });
+});
+
+manageRouter.delete('/products/:id/files/:fileId', requirePermission('manage_products'), async (req: Request, res: Response) => {
+  const { error } = await supabaseAdmin
+    .from('product_files')
+    .update({ is_active: false })
+    .eq('id', req.params.fileId)
+    .eq('product_id', req.params.id);
+  if (error) {
+    res.status(500).json({ error: 'تعذر إلغاء تنشيط الملف' });
+    return;
+  }
+  await audit(req, 'deactivate', 'product_file', req.params.fileId, {});
+  res.json({ success: true, message: 'تم تعطيل الملف' });
+});
+
+// ---------------------------------------------------------------------------
+// CATEGORIES
 // ---------------------------------------------------------------------------
 manageRouter.post('/categories', requirePermission('manage_products'), async (req: Request, res: Response) => {
   const body = req.body ?? {};
@@ -162,8 +265,7 @@ manageRouter.put('/categories/:id', requirePermission('manage_products'), async 
 });
 
 // ---------------------------------------------------------------------------
-// COUPONS (schema: code, discount_type, discount_value, minimum_order,
-// max_uses, used_count, starts_at, expires_at, is_active)
+// COUPONS
 // ---------------------------------------------------------------------------
 manageRouter.post('/coupons', requirePermission('manage_coupons'), async (req: Request, res: Response) => {
   const body = req.body ?? {};
@@ -265,9 +367,21 @@ manageRouter.put('/banks/:id', requirePermission('manage_banks'), async (req: Re
   res.json({ bank: data });
 });
 
+manageRouter.delete('/banks/:id', requirePermission('manage_banks'), async (req: Request, res: Response) => {
+  const { error } = await supabaseAdmin
+    .from('payment_accounts')
+    .update({ is_active: false })
+    .eq('id', req.params.id);
+  if (error) {
+    res.status(500).json({ error: 'تعذر تعطيل الحساب البنكي' });
+    return;
+  }
+  await audit(req, 'deactivate', 'payment_account', req.params.id, {});
+  res.json({ success: true, message: 'تم تعطيل الحساب البنكي' });
+});
+
 // ---------------------------------------------------------------------------
 // STAFF (customer profile management: role / status)
-// profiles.status is free TEXT ('active'/'suspended'); role is user_role enum.
 // ---------------------------------------------------------------------------
 manageRouter.put('/staff/:userId', requirePermission('manage_users'), async (req: Request, res: Response) => {
   const body = req.body ?? {};
@@ -281,6 +395,18 @@ manageRouter.put('/staff/:userId', requirePermission('manage_users'), async (req
     updates.role = body.role;
   }
   if (typeof body.status === 'string' && ['active', 'suspended'].includes(body.status)) {
+    // A non-owner can never suspend the owner.
+    if (body.status === 'suspended') {
+      const { data: target } = await supabaseAdmin
+        .from('profiles')
+        .select('role')
+        .eq('id', req.params.userId)
+        .maybeSingle();
+      if (target?.role === 'owner' && req.user!.role !== 'owner' && req.user!.role !== 'super_admin') {
+        res.status(403).json({ error: 'لا يمكن تعليق حساب المالك' });
+        return;
+      }
+    }
     updates.status = body.status;
   }
   if (str(body.full_name, 200)) updates.full_name = str(body.full_name, 200);
@@ -301,7 +427,7 @@ manageRouter.put('/staff/:userId', requirePermission('manage_users'), async (req
 });
 
 // ---------------------------------------------------------------------------
-// SITE SETTINGS (production schema: key/value rows setting_key/setting_value)
+// SITE SETTINGS
 // PUT /api/admin/settings expects { entries: [{ key, value }] }
 // ---------------------------------------------------------------------------
 manageRouter.put('/settings', requirePermission('manage_settings'), async (req: Request, res: Response) => {
