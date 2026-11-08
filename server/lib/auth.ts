@@ -65,10 +65,10 @@ export function permissionsFor(role: string | undefined): readonly (PermissionKe
  *
  * Self-healing: a user who authenticated with Google BEFORE the
  * auto-provision trigger existed (or whose trigger failed) has an
- * auth.users row but no profiles row. That used to answer 403 and the UI
- * bounced back to the login page forever. The profile is now created on
- * first authenticated request (role always 'customer', except the single
- * bootstrap owner named in OWNER_EMAIL with a Google-verified email).
+ * auth.users row but no profiles row. The profile is now created on
+ * first authenticated request using an UPSERT — the dashboard fires
+ * several /api calls in parallel on load, and a plain insert raced and
+ * failed with duplicate-key errors; upsert tolerates the concurrency.
  *
  * Every failure carries a machine-readable `code` so the UI can explain it.
  */
@@ -150,11 +150,17 @@ export async function requireAuth(
         (typeof meta.name === 'string' && meta.name) ||
         email.split('@')[0];
 
+      // UPSERT (not insert): tolerates the parallel /api calls the
+      // dashboard fires on load — concurrent first requests each try to
+      // create the same profile and the loser no longer errors out.
       const { data: created, error: createError } = await supabaseAdmin
         .from('profiles')
-        .insert({ id: authUser.id, email, full_name: fullName, role, status: 'active' })
+        .upsert(
+          { id: authUser.id, email, full_name: fullName, role, status: 'active' },
+          { onConflict: 'id' }
+        )
         .select('id, email, full_name, role, status')
-        .single();
+        .maybeSingle();
       if (createError || !created) {
         console.error('[auth] profile auto-create failed:', createError?.message);
         res.status(500).json({
