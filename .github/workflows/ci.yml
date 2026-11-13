@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Test, typecheck and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@v2
+      - name: Install dependencies from lockfile
+        run: bun install --frozen-lockfile
+      - name: Unit + contract tests (frontend <-> API routes)
+        run: node --test tests/*.test.ts
+      - name: Typecheck
+        run: bun run lint
+      - name: Build frontend
+        run: bun run build
