@@ -146,7 +146,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ initialFilter, onVie
           {/* Price Range Slider */}
           <div className="flex items-center gap-3 shrink-0 text-slate-400">
             <span>الحد الأقصى للسعر:</span>
-            <span className="text-white font-mono font-bold">{maxPrice.toLocaleString('ar-LY')} د.ل</span>
+            <span className="text-white font-mono font-bold">{maxPrice.toLocaleString('en-US')} د.ل</span>
             <input
               type="range"
               min="500"

@@ -70,7 +70,7 @@ export const OrderSuccessPage: React.FC<OrderSuccessPageProps> = ({
           <div>
             <span className="text-slate-400 block text-[11px]">المبلغ الإجمالي</span>
             <span className="text-xl font-extrabold text-white tabular-nums">
-              {order.total_amount.toLocaleString('ar-LY')} <span className="text-xs font-normal text-slate-400">دينار ليبي</span>
+              {order.total_amount.toLocaleString('en-US')} <span className="text-xs font-normal text-slate-400">دينار ليبي</span>
             </span>
           </div>
         </div>
@@ -83,13 +83,13 @@ export const OrderSuccessPage: React.FC<OrderSuccessPageProps> = ({
               <div key={item.id} className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2 text-xs">
                 <div className="flex justify-between font-bold text-white">
                   <span>{item.product_name_snapshot}</span>
-                  <span className="font-mono">{item.total_price.toLocaleString('ar-LY')} د.ل</span>
+                  <span className="font-mono">{item.total_price.toLocaleString('en-US')} د.ل</span>
                 </div>
                 <div className="space-y-1 text-[11px] text-slate-400">
                   {item.selected_options_snapshot.map(opt => (
                     <div key={opt.option_id} className="flex justify-between">
                       <span>· {opt.name}</span>
-                      <span className="font-mono">{opt.price.toLocaleString('ar-LY')} د.ل</span>
+                      <span className="font-mono">{opt.price.toLocaleString('en-US')} د.ل</span>
                     </div>
                   ))}
                 </div>

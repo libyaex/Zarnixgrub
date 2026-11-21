@@ -48,3 +48,21 @@
 button, a, input, select, textarea {
   touch-action: manipulation;
 }
+
+/* Safe-area aware helpers (iPhone home indicator / notches when installed as an app) */
+.pb-safe { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 0.5rem); }
+.pt-safe { padding-top: env(safe-area-inset-top, 0px); }
+
+@keyframes fade-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.animate-fade-in { animation: fade-in 0.18s ease-out both; }
+
+/* Respect users who ask for less motion */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
+
+/* Keyboard users always see where they are */
+:focus-visible { outline: 2px solid var(--color-emerald-400); outline-offset: 2px; }
+
+/* Installed-app feel: no rubber-band overscroll flash, no text-size jumps */
+html { -webkit-text-size-adjust: 100%; overscroll-behavior-y: none; }

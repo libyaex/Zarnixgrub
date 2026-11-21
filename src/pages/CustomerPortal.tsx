@@ -352,7 +352,7 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
                 <div>
                   <span className="text-slate-400 block text-[11px]">الإجمالي</span>
                   <span className="font-mono text-base font-bold text-indigo-400">
-                    {ord.total_amount.toLocaleString('ar-LY')} د.ل
+                    {ord.total_amount.toLocaleString('en-US')} د.ل
                   </span>
                 </div>
 
@@ -380,7 +380,7 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
                         {it.selected_options_snapshot.map(o => o.name).join(' · ')}
                       </span>
                     </div>
-                    <span className="font-mono text-white font-bold">{it.total_price.toLocaleString('ar-LY')} د.ل</span>
+                    <span className="font-mono text-white font-bold">{it.total_price.toLocaleString('en-US')} د.ل</span>
                   </div>
                 ))}
               </div>

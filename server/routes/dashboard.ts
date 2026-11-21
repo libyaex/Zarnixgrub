@@ -16,6 +16,10 @@ import {
 import { parseProductPayload, shapeProduct, shapeOrder, shapeRole, fetchAll } from '../lib/shape.ts';
 import { isUuid, isEmail } from '../lib/validators.ts';
 import { audit } from '../lib/audit.ts';
+import * as events from '../lib/events.ts';
+import { broadcast } from '../lib/notify.ts';
+import { vapidFromEnv } from '../lib/webpush.ts';
+import { safeLink } from '../lib/notifyRules.ts';
 import { storageObjectExists, PROJECT_BUCKET } from './upload.ts';
 
 export const dashboardRouter = Router();
@@ -266,7 +270,7 @@ const MANUAL_PAYMENT_STATUSES = ['unsubmitted', 'rejected', 'refunded'];
 dashboardRouter.put('/orders/:id/status', requirePermission('manage_orders'), async (req: Request, res: Response) => {
   if (!isUuid(req.params.id)) return fail(res, 400, 'معرف الطلب غير صالح');
   const { order_status, payment_status, notes } = req.body ?? {};
-  const { data: order } = await supabaseAdmin.from('orders').select('id, order_status, payment_status').eq('id', req.params.id).maybeSingle();
+  const { data: order } = await supabaseAdmin.from('orders').select('id, order_number, user_id, order_status, payment_status').eq('id', req.params.id).maybeSingle();
   if (!order) return fail(res, 404, 'الطلب غير موجود');
 
   const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -290,6 +294,9 @@ dashboardRouter.put('/orders/:id/status', requirePermission('manage_orders'), as
     await supabaseAdmin.from('download_entitlements').update({ is_active: false }).eq('order_id', order.id);
   }
   await audit(req, 'update_status', 'order', order.id, { from: { order_status: order.order_status, payment_status: order.payment_status }, to: update, notes: typeof notes === 'string' ? notes.slice(0, 500) : undefined });
+  if (update.order_status && update.order_status !== order.order_status) {
+    await events.orderStatusChanged(order.user_id, { id: order.id, order_number: order.order_number }, String(update.order_status));
+  }
   res.json({ success: true });
 });
 
@@ -330,12 +337,14 @@ dashboardRouter.get('/download-logs', requirePermission('manage_downloads'), asy
 dashboardRouter.post('/entitlements/:id/extend', requirePermission('manage_downloads'), async (req: Request, res: Response) => {
   if (!isUuid(req.params.id)) return fail(res, 400, 'معرف الترخيص غير صالح');
   const extra = Math.max(1, Math.min(100, Math.floor(Number(req.body?.extra) || 5)));
-  const { data: ent } = await supabaseAdmin.from('download_entitlements').select('id, allowed_downloads, used_downloads').eq('id', req.params.id).maybeSingle();
+  const { data: ent } = await supabaseAdmin.from('download_entitlements').select('id, user_id, product_id, allowed_downloads, used_downloads').eq('id', req.params.id).maybeSingle();
   if (!ent) return fail(res, 404, 'الترخيص غير موجود');
   const allowed = Math.max(ent.allowed_downloads, ent.used_downloads) + extra;
   const { error } = await supabaseAdmin.from('download_entitlements').update({ allowed_downloads: allowed, is_active: true }).eq('id', ent.id);
   if (error) return dbFail(res, 'تمديد محاولات التنزيل', error);
   await audit(req, 'extend', 'download_entitlement', ent.id, { extra, allowed });
+  const { data: prod } = await supabaseAdmin.from('products').select('name').eq('id', ent.product_id).maybeSingle();
+  await events.downloadExtended(ent.user_id, prod?.name ?? 'المنتج', extra);
   res.json({ success: true, allowed_downloads: allowed });
 });
 
@@ -570,6 +579,7 @@ dashboardRouter.put('/staff/:userId/role', requirePermission('manage_users'), as
   const assigned = await assignRole(req.params.userId, role);
   if (!assigned.ok) return fail(res, 400, assigned.error);
   await audit(req, 'change_role', 'profile', req.params.userId, { from: target.role, to: role });
+  await events.roleChanged(req.params.userId, role, req.user!.id);
   res.json({ success: true });
 });
 
@@ -595,4 +605,28 @@ dashboardRouter.delete('/staff/invite/:id', requirePermission('manage_users'), a
   await supabaseAdmin.from('staff_invites').delete().eq('id', req.params.id).is('accepted_at', null);
   await audit(req, 'cancel_invite', 'staff_invite', req.params.id, {});
   res.json({ success: true });
+});
+
+// ---------------------------------------------------------------------------
+// NOTIFICATIONS (admin): announcements + delivery status
+// ---------------------------------------------------------------------------
+dashboardRouter.post('/notifications/broadcast', requirePermission('manage_settings'), async (req: Request, res: Response) => {
+  const b = req.body ?? {};
+  const title = typeof b.title === 'string' ? b.title.trim().slice(0, 90) : '';
+  const body = typeof b.body === 'string' ? b.body.trim().slice(0, 220) : '';
+  const audience = ['all', 'staff', 'customers'].includes(b.audience) ? b.audience : '';
+  if (!title || !body || !audience) return fail(res, 400, 'العنوان والنص والفئة المستهدفة مطلوبة');
+  if (b.link && !safeLink(b.link)) return fail(res, 400, 'الرابط يجب أن يكون مساراً داخلياً يبدأ بـ /');
+  const priority = ['low', 'normal', 'high'].includes(b.priority) ? b.priority : 'normal';
+  const result = await broadcast(audience, { title, body, link: b.link || null, priority });
+  await audit(req, 'broadcast', 'notification', 'bulk', { audience, title, ...result });
+  res.status(201).json({ success: true, ...result });
+});
+
+dashboardRouter.get('/notifications/status', requirePermission('manage_settings'), async (_req: Request, res: Response) => {
+  const [{ count: subs }, { count: unread }] = await Promise.all([
+    supabaseAdmin.from('push_subscriptions').select('id', { count: 'exact', head: true }),
+    supabaseAdmin.from('notifications').select('id', { count: 'exact', head: true }).is('read_at', null),
+  ]);
+  res.json({ push_configured: Boolean(vapidFromEnv()), push_subscriptions: subs ?? 0, unread_total: unread ?? 0 });
 });

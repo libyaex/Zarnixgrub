@@ -23,7 +23,7 @@ jobs:
       - name: Install dependencies from lockfile
         run: bun install --frozen-lockfile
       - name: Unit + contract tests (frontend <-> API routes)
-        run: node --test tests/*.test.ts
+        run: node --experimental-test-module-mocks --test tests/*.test.ts
       - name: Typecheck
         run: bun run lint
       - name: Build frontend

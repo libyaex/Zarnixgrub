@@ -25,7 +25,7 @@ const catalog = () => ({
   products: [{ id: P1, name: 'App', base_price: '100', status: 'published' }],
   product_options: [
     { id: O_INSTALL, product_id: P1, name: 'Install', price: '50', is_required: false, is_active: true },
-    { id: O_LICENSE, product_id: P1, name: 'License', price: '10', is_required: true, is_active: true },
+    { id: O_LICENSE, product_id: P1, name: 'License', price: '100', is_required: true, is_active: true },
   ],
   coupons: [{ code: 'SAVE10', discount_type: 'percentage', discount_value: 10, minimum_order: 0, max_uses: 1, used_count: 0, starts_at: '2020-01-01T00:00:00Z', expires_at: null, is_active: true }],
 });
@@ -38,18 +38,34 @@ test('checkout: server recalculates price, ignores client-sent prices, returns t
     body: { items: [{ product_id: P1, quantity: 2, price: 1, selected_options: [{ option_id: O_LICENSE }, { option_id: O_INSTALL }] }] },
   });
   assert.equal(res.statusCode, 201);
-  assert.equal(res.body.total_amount, 320); // (100 + 10 + 50) * 2
+  assert.equal(res.body.total_amount, 300); // (100 base tier + 50 install) * 2 — base_price is NOT added again
   assert.equal(res.body.user_id, CUSTOMER);
   assert.ok(res.body.id && res.body.order_number.startsWith('ZNX-'));
   assert.equal(res.body.items.length, 1);
-  assert.equal(db.T('order_items')[0].total_price, 320);
+  assert.equal(db.T('order_items')[0].total_price, 300);
+});
+
+test('checkout regression: the displayed total equals the charged total (no double base price)', async () => {
+  resetDb({
+    products: [{ id: P1, name: 'P2plibya', base_price: '450', status: 'published' }],
+    product_options: [
+      { id: O_LICENSE, product_id: P1, name: 'الكود المصدري + رخصة', price: '450', is_required: true, is_active: true },
+      { id: O_INSTALL, product_id: P1, name: 'خدمة التركيب', price: '180', is_required: false, is_active: true },
+    ],
+  });
+  const res = await call(store, 'POST', '/orders', {
+    user: user(), body: { items: [{ product_id: P1, quantity: 1, selected_options: [{ option_id: O_LICENSE }, { option_id: O_INSTALL }] }] },
+  });
+  assert.equal(res.statusCode, 201);
+  assert.equal(res.body.total_amount, 630, 'customer saw 450 + 180');
+  assert.equal(res.body.items[0].total_price, 630);
 });
 
 test('checkout: accepts the legacy option_ids shape too', async () => {
   resetDb(catalog());
   const res = await call(store, 'POST', '/orders', { user: user(), body: { items: [{ product_id: P1, quantity: 1, option_ids: [O_LICENSE] }] } });
   assert.equal(res.statusCode, 201);
-  assert.equal(res.body.total_amount, 110);
+  assert.equal(res.body.total_amount, 100);
 });
 
 test('checkout: required option missing, foreign option, unpublished product, empty cart are rejected', async () => {
@@ -75,8 +91,8 @@ test('coupon: invalid code is rejected (not silently ignored) and does not burn 
 
   const ok = await call(store, 'POST', '/orders', { user: user(), body: { items, coupon_code: 'save10' } });
   assert.equal(ok.statusCode, 201);
-  assert.equal(ok.body.discount_amount, 11);
-  assert.equal(ok.body.total_amount, 99);
+  assert.equal(ok.body.discount_amount, 10);
+  assert.equal(ok.body.total_amount, 90);
   assert.equal(db.T('coupons')[0].used_count, 1);
 
   const again = await call(store, 'POST', '/orders', { user: user(), body: { items, coupon_code: 'SAVE10' } });
@@ -298,4 +314,132 @@ test('product files: registering requires a real uploaded object; files with cus
   assert.equal(del.body.archived, true);
   assert.equal(db.T('product_files').find((f) => f.id === FILE_ID)!.is_active, false);
   assert.equal(db.T('download_entitlements').length, 1, 'customer entitlements survive');
+});
+
+// ------------------------------------------------------------------ notifications
+// Loaded AFTER the mocks are registered (static imports are hoisted above `before`).
+let notifyUsers: typeof import('../server/lib/notify.ts').notifyUsers;
+let notifyStaff: typeof import('../server/lib/notify.ts').notifyStaff;
+let builtinRolesWith: typeof import('../server/lib/notify.ts').builtinRolesWith;
+let staffWithPermission: typeof import('../server/lib/notify.ts').staffWithPermission;
+before(async () => {
+  ({ notifyUsers, notifyStaff, builtinRolesWith, staffWithPermission } = await import('../server/lib/notify.ts'));
+});
+
+test('notifications: in-app row is created with a safe deep link; unsafe links are dropped', async () => {
+  resetDb({ profiles: [{ id: CUSTOMER, role: 'customer', status: 'active' }] });
+  const r = await notifyUsers([CUSTOMER], { type: 'payment_approved', title: 'تم', body: 'جاهز', link: 'https://evil.com' });
+  assert.equal(r.inApp, 1);
+  assert.equal(db.T('notifications')[0].link, null);
+  await notifyUsers([CUSTOMER], { type: 'payment_approved', title: 'تم', body: 'جاهز', link: '/portal/downloads' });
+  assert.equal(db.T('notifications')[1].link, '/portal/downloads');
+  assert.equal(db.T('notifications')[1].user_id, CUSTOMER);
+});
+
+test('notifications: same group within the window merges into ONE unread row with a count', async () => {
+  resetDb({ profiles: [{ id: STAFF, role: 'admin', status: 'active' }] });
+  const base = { type: 'order_new' as const, title: 'طلب جديد', groupKey: 'order_new' };
+  await notifyUsers([STAFF], { ...base, body: 'ZNX-1' });
+  await notifyUsers([STAFF], { ...base, body: 'ZNX-2' });
+  await notifyUsers([STAFF], { ...base, body: 'ZNX-3' });
+  assert.equal(db.T('notifications').length, 1);
+  assert.equal(db.T('notifications')[0].title, '3 طلبات جديدة');
+  assert.equal(db.T('notifications')[0].body, 'ZNX-3');
+  assert.equal(db.T('notifications')[0].data.count, 3);
+  // once read, the next one starts a fresh row
+  db.T('notifications')[0].read_at = new Date().toISOString();
+  await notifyUsers([STAFF], { ...base, body: 'ZNX-4' });
+  assert.equal(db.T('notifications').length, 2);
+});
+
+test('notifications: muted types and disabled in-app are respected; the actor is never notified of their own action', async () => {
+  resetDb({
+    profiles: [{ id: CUSTOMER, role: 'customer', status: 'active' }, { id: OTHER, role: 'customer', status: 'active' }],
+    notification_preferences: [{ user_id: CUSTOMER, in_app: true, push: true, muted_types: ['order_status'], quiet_start: null, quiet_end: null, tz_offset_minutes: 120 }],
+  });
+  const muted = await notifyUsers([CUSTOMER], { type: 'order_status', title: 't', body: 'b' });
+  assert.equal(muted.inApp, 0);
+  const normal = await notifyUsers([CUSTOMER], { type: 'payment_approved', title: 't', body: 'b' });
+  assert.equal(normal.inApp, 1);
+  const self = await notifyUsers([OTHER], { type: 'system', title: 't', body: 'b' }, { skipUserId: OTHER });
+  assert.equal(self.inApp, 0);
+});
+
+test('notifications: staff audience resolves through built-in AND custom role permissions', async () => {
+  const CUSTOM = '99999999-9999-4999-8999-999999999999';
+  resetDb({
+    profiles: [
+      { id: 'p1', role: 'payment_manager', status: 'active' },
+      { id: 'p2', role: 'product_manager', status: 'active' },
+      { id: 'p3', role: 'owner', status: 'active' },
+      { id: 'p4', role: 'customer', status: 'active', custom_role_id: CUSTOM },
+      { id: 'p5', role: 'payment_manager', status: 'suspended' },
+      { id: 'p6', role: 'customer', status: 'active' },
+    ],
+    role_permissions: [{ role_id: CUSTOM, permission_key: 'approve_payments' }],
+  });
+  assert.ok(builtinRolesWith('approve_payments').includes('payment_manager'));
+  assert.ok(!builtinRolesWith('approve_payments').includes('product_manager'));
+  assert.ok(!builtinRolesWith('approve_payments').includes('customer'));
+  const ids = (await staffWithPermission('approve_payments')).sort();
+  assert.deepEqual(ids, ['p1', 'p3', 'p4'], 'suspended and unrelated staff are excluded');
+  const sent = await notifyStaff('approve_payments', { type: 'payment_submitted', title: 't', body: 'b' }, { skipUserId: 'p1' });
+  assert.equal(sent.inApp, 2);
+});
+
+test('notifications: business events notify the right people (payment submit -> reviewers, approve -> customer)', async () => {
+  resetDb({
+    ...paymentSeed(),
+    profiles: [
+      { id: CUSTOMER, role: 'customer', status: 'active', full_name: 'Ali' },
+      { id: STAFF, role: 'payment_manager', status: 'active' },
+    ],
+  });
+  db.objects.add(`payment_receipts/${CUSTOMER}/receipt.png`);
+  const sub = await call(payments, 'POST', '/submit', { user: user(), body: proof() });
+  assert.equal(sub.statusCode, 201);
+  const toReviewer = db.T('notifications').filter((n) => n.user_id === STAFF);
+  assert.equal(toReviewer.length, 1);
+  assert.equal(toReviewer[0].type, 'payment_submitted');
+  assert.equal(toReviewer[0].link, '/admin?tab=payments');
+  assert.equal(db.T('notifications').filter((n) => n.user_id === CUSTOMER).length, 0, 'customer is not told about their own submission');
+
+  const subId = db.T('payment_submissions')[0].id;
+  const approve = await call(payments, 'POST', '/review', { user: staff(['approve_payments']), body: { submission_id: subId, decision: 'approve' } });
+  assert.equal(approve.statusCode, 200);
+  const toCustomer = db.T('notifications').filter((n) => n.user_id === CUSTOMER);
+  assert.equal(toCustomer.length, 1);
+  assert.equal(toCustomer[0].type, 'payment_approved');
+  assert.equal(toCustomer[0].link, '/portal/downloads');
+});
+
+test('settings drive delivery: download limit/expiry come from the dashboard settings', async () => {
+  resetDb({
+    ...reviewSeed(),
+    site_settings: [
+      { setting_key: 'default_download_limit', setting_value: { value: 7 } },
+      { setting_key: 'default_download_expiry_days', setting_value: { value: 30 } },
+    ],
+  });
+  const { invalidateSiteConfig } = await import('../server/lib/siteConfig.ts');
+  invalidateSiteConfig();
+  const res = await call(payments, 'POST', '/review', { user: staff(['*'], 'owner'), body: { submission_id: SUB, decision: 'approve' } });
+  assert.equal(res.statusCode, 200);
+  const ents = db.T('download_entitlements');
+  assert.ok(ents.length > 0 && ents.every((e) => e.allowed_downloads === 7));
+  const days = (new Date(ents[0].expires_at).getTime() - Date.now()) / 86_400_000;
+  assert.ok(days > 29 && days <= 30);
+});
+
+test('customers can disable payment notifications from the dashboard switches', async () => {
+  resetDb({
+    ...reviewSeed(),
+    profiles: [{ id: CUSTOMER, role: 'customer', status: 'active' }],
+    site_settings: [{ setting_key: 'notify_customer_payment_result', setting_value: { value: false } }],
+  });
+  const { invalidateSiteConfig } = await import('../server/lib/siteConfig.ts');
+  invalidateSiteConfig();
+  await call(payments, 'POST', '/review', { user: staff(['*'], 'owner'), body: { submission_id: SUB, decision: 'approve' } });
+  assert.equal(db.T('notifications').length, 0);
+  invalidateSiteConfig();
 });

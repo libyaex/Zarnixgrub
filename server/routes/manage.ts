@@ -19,6 +19,8 @@
 import { Router, type Request, type Response } from 'express';
 import { supabaseAdmin } from '../lib/supabaseAdmin.ts';
 import { requirePermission } from '../lib/auth.ts';
+import { validateSettingsUpdate } from '../../src/shared/siteSchema.ts';
+import { invalidateSiteConfig } from '../lib/siteConfig.ts';
 
 export const manageRouter = Router();
 
@@ -202,26 +204,33 @@ manageRouter.put('/banks/:id', requirePermission('manage_banks'), async (req: Re
 // PUT /api/admin/settings expects { entries: [{ key, value }] }
 // ---------------------------------------------------------------------------
 manageRouter.put('/settings', requirePermission('manage_settings'), async (req: Request, res: Response) => {
-  const entries: Array<{ key?: unknown; value?: unknown }> = Array.isArray(req.body?.entries) ? req.body.entries : [];
-  if (entries.length === 0) {
+  // Accept { entries: [{key,value}] } (legacy) or { settings: { key: value } }.
+  const incoming: Record<string, unknown> = {};
+  if (Array.isArray(req.body?.entries)) {
+    for (const e of req.body.entries) if (e && typeof e.key === 'string') incoming[e.key] = e.value;
+  } else if (req.body?.settings && typeof req.body.settings === 'object') {
+    Object.assign(incoming, req.body.settings);
+  }
+  if (Object.keys(incoming).length === 0) {
     res.status(400).json({ error: 'لا توجد إعدادات للحفظ' });
     return;
   }
-
-  const saved: string[] = [];
-  for (const entry of entries.slice(0, 50)) {
-    const key = str(entry.key, 100);
-    if (!key) continue;
-    const { error } = await supabaseAdmin
-      .from('site_settings')
-      .upsert({ setting_key: key, setting_value: { value: entry.value ?? null }, updated_at: new Date().toISOString() }, { onConflict: 'setting_key' });
-    if (error) {
-      res.status(500).json({ error: `تعذر حفظ الإعداد: ${key}` });
-      return;
-    }
-    saved.push(key);
+  const checked = validateSettingsUpdate(incoming);
+  if (!checked.ok) {
+    res.status(400).json({ error: checked.errors[0], errors: checked.errors });
+    return;
   }
-
-  await audit(req, 'update', 'site_settings', 'bulk', { keys: saved });
-  res.json({ settings: { saved_keys: saved } });
+  const now = new Date().toISOString();
+  const rows = Object.entries(checked.values).map(([setting_key, value]) => ({
+    setting_key, setting_value: { value }, updated_at: now,
+  }));
+  const { error } = await supabaseAdmin.from('site_settings').upsert(rows, { onConflict: 'setting_key' });
+  if (error) {
+    console.error('[settings] save failed:', error.message);
+    res.status(500).json({ error: 'تعذر حفظ الإعدادات' });
+    return;
+  }
+  invalidateSiteConfig();
+  await audit(req, 'update', 'site_settings', 'bulk', { keys: Object.keys(checked.values) });
+  res.json({ success: true, saved_keys: Object.keys(checked.values) });
 });

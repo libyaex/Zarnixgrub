@@ -11,6 +11,7 @@
  */
 import 'dotenv/config';
 import express, { type Request, type Response, type NextFunction } from 'express';
+import fs from 'node:fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { authRouter } from './server/routes/auth.ts';
@@ -21,10 +22,17 @@ import { downloadsRouter } from './server/routes/downloads.ts';
 import { adminRouter } from './server/routes/admin.ts';
 import { manageRouter } from './server/routes/manage.ts';
 import { dashboardRouter } from './server/routes/dashboard.ts';
+import { notificationsRouter } from './server/routes/notifications.ts';
 import { isSupabaseConfigured, SUPABASE_HOST } from './server/lib/supabaseAdmin.ts';
 import { requireAuth, requireStaff } from './server/lib/auth.ts';
 import { protectRouter } from './server/lib/asyncSafe.ts';
 import { createRateLimiter } from './server/lib/rateLimit.ts';
+import { supabaseAdmin } from './server/lib/supabaseAdmin.ts';
+import { loadSiteConfig } from './server/lib/siteConfig.ts';
+import {
+  buildHead, injectHead, buildManifest, buildRobots, buildSitemap, productJsonLd, siteOrigin,
+  type PageMeta,
+} from './server/lib/htmlMeta.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -75,6 +83,7 @@ app.use('/api/auth', authLimit, protectRouter(authRouter));
 app.use('/api/payments', protectRouter(paymentsRouter));
 app.use('/api/upload', protectRouter(uploadRouter));
 app.use('/api/downloads', protectRouter(downloadsRouter));
+app.use('/api/notifications', protectRouter(notificationsRouter));
 
 // Admin: authenticate ONCE, require staff, then per-route permissions.
 app.use(
@@ -90,16 +99,102 @@ app.use(
 // Storefront routes (products, categories, orders, coupons, services, banks).
 app.use('/api', protectRouter(storeRouter));
 
-// SPA static serving (Vite build output)
+// ---------------------------------------------------------------------------
+// Dynamic, dashboard-driven web assets: manifest, robots.txt, sitemap.xml and
+// the HTML shell (SEO tags are rendered per page, before any JavaScript runs).
+// ---------------------------------------------------------------------------
 const distDir = path.join(__dirname, 'dist');
-app.use('/assets', express.static(path.join(distDir, 'assets'), { maxAge: '1y', immutable: true }));
-app.use(express.static(distDir, { maxAge: 0 }));
 
-app.get('*', (req: Request, res: Response) => {
+/** Request origin, but never trust an arbitrary Host header for canonical URLs. */
+function requestOrigin(req: Request): string {
+  const host = req.get('host') ?? '';
+  return /^[a-z0-9.-]+(:\d+)?$/i.test(host) ? `${req.protocol}://${host}` : '';
+}
+
+async function pageOrigin(req: Request) {
+  const cfg = await loadSiteConfig();
+  return { cfg, origin: siteOrigin(cfg, requestOrigin(req)) };
+}
+
+app.get('/manifest.webmanifest', async (req: Request, res: Response) => {
+  const { cfg, origin } = await pageOrigin(req);
+  res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=300');
+  res.type('application/manifest+json').send(JSON.stringify(buildManifest(cfg, origin)));
+});
+
+app.get('/robots.txt', async (req: Request, res: Response) => {
+  const { cfg, origin } = await pageOrigin(req);
+  res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=300');
+  res.type('text/plain').send(buildRobots(cfg, origin));
+});
+
+app.get('/sitemap.xml', async (req: Request, res: Response) => {
+  const { cfg, origin } = await pageOrigin(req);
+  const { data } = await supabaseAdmin
+    .from('products').select('slug, updated_at').eq('status', 'published').range(0, 4999);
+  res.setHeader('Cache-Control', 'public, max-age=900, s-maxage=900');
+  res.type('application/xml').send(buildSitemap(cfg, origin, data ?? []));
+});
+
+let htmlTemplate: string | null = null;
+async function readTemplate(origin: string): Promise<string> {
+  if (htmlTemplate) return htmlTemplate;
+  for (const file of [path.join(distDir, 'index.html'), path.join(__dirname, 'index.html')]) {
+    try {
+      htmlTemplate = await fs.readFile(file, 'utf8');
+      return htmlTemplate;
+    } catch { /* try next */ }
+  }
+  // Serverless bundle without dist/: the CDN serves the static file directly.
+  const res = await fetch(`${origin}/index.html`, { signal: AbortSignal.timeout(5000) });
+  if (!res.ok) throw new Error(`index.html unavailable (${res.status})`);
+  htmlTemplate = await res.text();
+  return htmlTemplate;
+}
+
+const POLICY_TITLES: Record<string, string> = {
+  terms: 'الشروط والأحكام', privacy: 'سياسة الخصوصية', refunds: 'سياسة الاسترجاع والإلغاء',
+  digital_goods: 'سياسة المنتجات الرقمية', licensing: 'سياسة الترخيص', support: 'سياسة الدعم الفني',
+};
+
+async function metaForPath(pathname: string, cfg: Awaited<ReturnType<typeof loadSiteConfig>>, origin: string): Promise<PageMeta> {
+  const productMatch = pathname.match(/^\/products\/([^/]+)\/?$/);
+  if (productMatch) {
+    let slug = productMatch[1];
+    try { slug = decodeURIComponent(slug); } catch { /* keep raw */ }
+    const { data: p } = await supabaseAdmin
+      .from('products').select('name, slug, short_description, main_image, base_price')
+      .eq('slug', slug).eq('status', 'published').maybeSingle();
+    if (p) {
+      return {
+        path: pathname, title: p.name, description: p.short_description, image: p.main_image, ogType: 'product',
+        jsonLd: [productJsonLd(p, cfg, origin)],
+      };
+    }
+    return { path: pathname, noindex: true };
+  }
+  if (pathname === '/products') return { path: pathname, title: 'جميع المنتجات' };
+  const policy = pathname.match(/^\/policies\/([^/]+)\/?$/);
+  if (policy && POLICY_TITLES[policy[1]]) return { path: pathname, title: POLICY_TITLES[policy[1]] };
+  return { path: pathname === '' ? '/' : pathname };
+}
+
+app.use('/assets', express.static(path.join(distDir, 'assets'), { maxAge: '1y', immutable: true }));
+app.use(express.static(distDir, { index: false, maxAge: '1h' }));
+
+app.get('*', async (req: Request, res: Response, next: NextFunction) => {
   if (req.path.startsWith('/api/')) {
     return res.status(404).json({ error: 'المسار غير موجود', code: 'not_found' });
   }
-  res.sendFile(path.join(distDir, 'index.html'));
+  try {
+    const { cfg, origin } = await pageOrigin(req);
+    const html = await readTemplate(origin || requestOrigin(req));
+    const meta = await metaForPath(req.path, cfg, origin);
+    res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=60, stale-while-revalidate=300');
+    res.type('html').send(injectHead(html, buildHead(cfg, meta, origin)));
+  } catch (error) {
+    next(error);
+  }
 });
 
 // Always answer API errors as JSON (Express 4 would send an HTML stack page).

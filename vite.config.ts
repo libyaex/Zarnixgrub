@@ -13,7 +13,12 @@ export default defineConfig(() => {
     },
     server: {
       // Local development: forward API calls to the Express server (npm run dev).
-      proxy: { '/api': 'http://localhost:3000' },
+      proxy: {
+        '/api': 'http://localhost:3000',
+        '/manifest.webmanifest': 'http://localhost:3000',
+        '/robots.txt': 'http://localhost:3000',
+        '/sitemap.xml': 'http://localhost:3000',
+      },
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modify—file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',

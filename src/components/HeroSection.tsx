@@ -1,4 +1,6 @@
 import React from 'react';
+import heroImage from '../assets/images/hero.jpg';
+import { useSite } from '../context/SiteContext';
 import { ArrowLeft, CheckCircle2, ShieldCheck, Download, Wrench, Sparkles } from 'lucide-react';
 
 interface HeroSectionProps {
@@ -7,6 +9,7 @@ interface HeroSectionProps {
 }
 
 export const HeroSection: React.FC<HeroSectionProps> = ({ onExplore, onBrowseAll }) => {
+  const site = useSite();
   return (
     <section className="relative pt-6 sm:pt-12 pb-14 sm:pb-20 overflow-hidden">
       {/* Background ambient lighting in rich Emerald & Gold */}
@@ -25,11 +28,11 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onExplore, onBrowseAll
             </div>
 
             <h1 className="text-3xl sm:text-5xl lg:text-6xl font-extrabold text-white leading-[1.25] tracking-tight">
-              حلول رقمية جاهزة لتحويل أفكارك إلى مشاريع حقيقية
+              {String(site.hero_title)}
             </h1>
 
             <p className="text-base sm:text-lg text-slate-300 leading-relaxed max-w-2xl">
-              اكتشف مجموعة من التطبيقات والأنظمة والبوتات والبرمجيات الرقمية، واختر الحل المناسب لمشروعك مع خيارات مرنة للشراء والتركيب والتخصيص.
+              {String(site.hero_subtitle)}
             </p>
 
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3.5 pt-2">
@@ -70,8 +73,8 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onExplore, onBrowseAll
           <div className="lg:col-span-5 relative w-full">
             <div className="relative rounded-3xl overflow-hidden border border-slate-800 bg-slate-900 shadow-2xl shadow-black/80 group">
               <img
-                src="/src/assets/images/nizar_hero_marketplace_1793738527373.jpg"
-                alt="لوحة برمجيات وأنظمة ZARNIX-Group"
+                src={heroImage}
+                alt={`لوحة برمجيات وأنظمة ${site.store_name}`}
                 className="w-full h-auto object-cover transform group-hover:scale-102 transition-transform duration-500"
                 referrerPolicy="no-referrer"
               />

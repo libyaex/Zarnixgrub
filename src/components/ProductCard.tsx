@@ -64,7 +64,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onViewDetails
           <div>
             <span className="text-xs text-slate-400 block font-medium">يبدأ من</span>
             <div className="text-lg sm:text-xl font-extrabold text-white tabular-nums">
-              {product.base_price.toLocaleString('ar-LY')} <span className="text-xs sm:text-sm font-semibold text-emerald-400">د.ل</span>
+              {product.base_price.toLocaleString('en-US')} <span className="text-xs sm:text-sm font-semibold text-emerald-400">د.ل</span>
             </div>
           </div>
 

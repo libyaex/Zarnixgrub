@@ -1,10 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { CartProvider, useCart } from './context/CartContext';
+import { SiteProvider, useSite } from './context/SiteContext';
+import { NotificationsProvider, useNotifications } from './context/NotificationsContext';
 import { Header } from './components/Header';
 import { Footer } from './components/Footer';
 import { MobileBottomNav } from './components/MobileBottomNav';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { InstallPrompt, UpdateBanner, ConnectionBanner } from './components/pwa/PwaPrompts';
+import { ToastHost } from './components/notifications/NotificationUI';
 import { GoogleLoginPage } from './pages/GoogleLoginPage';
+import { MaintenancePage } from './pages/MaintenancePage';
 import { HomePage } from './pages/HomePage';
 import { ProductsPage } from './pages/ProductsPage';
 import { ProductDetailsPage } from './pages/ProductDetailsPage';
@@ -12,286 +18,255 @@ import { CartPage } from './pages/CartPage';
 import { CheckoutPage } from './pages/CheckoutPage';
 import { OrderSuccessPage } from './pages/OrderSuccessPage';
 import { CustomerPortal } from './pages/CustomerPortal';
-import { PoliciesPage } from './pages/PoliciesPage';
-import { AdminDashboard } from './pages/admin/AdminDashboard';
+import { NotificationsPage } from './pages/NotificationsPage';
 import { Product, Order, SelectedOptionSnapshot, CartItem } from './types';
 import { apiFetch } from './lib/api';
+import { buildPath, parsePath, type Route, type View } from './lib/router';
+import { navigateTo } from './lib/nav';
+import { registerServiceWorker } from './lib/pwa';
 
-// Helper to check if current browser URL is specifically targeting /admin
-const checkIsAdminUrl = () => {
-  if (typeof window === 'undefined') return false;
-  const path = window.location.pathname.toLowerCase();
-  const hash = window.location.hash.toLowerCase();
-  const search = window.location.search.toLowerCase();
+// Heavy / rarely-visited screens are split out of the main bundle (customers never download the dashboard).
+const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard').then((m) => ({ default: m.AdminDashboard })));
+const PoliciesPage = lazy(() => import('./pages/PoliciesPage').then((m) => ({ default: m.PoliciesPage })));
+
+const PRIVATE_VIEWS: View[] = ['portal', 'checkout', 'notifications', 'admin', 'order_success'];
+
+const Spinner: React.FC = () => (
+  <div className="min-h-[50vh] flex items-center justify-center text-emerald-400">
+    <div className="w-9 h-9 rounded-full border-2 border-emerald-500/30 border-t-emerald-400 animate-spin" />
+  </div>
+);
+
+const Splash: React.FC = () => {
+  const site = useSite();
   return (
-    path === '/admin' || 
-    path.startsWith('/admin/') || 
-    hash === '#/admin' || 
-    hash.startsWith('#/admin/') ||
-    search.includes('view=admin') ||
-    search.includes('admin=true')
+    <div className="min-h-screen bg-[#06090f] flex items-center justify-center">
+      <div className="flex flex-col items-center gap-3">
+        <img src={String(site.logo_url)} alt="" className="w-16 h-16 object-contain animate-pulse" />
+        <span className="text-xs text-slate-400 font-medium">جارٍ تحميل المنصة...</span>
+      </div>
+    </div>
   );
 };
 
+const AnnouncementBar: React.FC = () => {
+  const site = useSite();
+  if (!site.announcement_enabled || !site.announcement_text) return null;
+  const inner = <span className="font-bold">{String(site.announcement_text)}</span>;
+  return (
+    <div className="bg-emerald-500 text-slate-950 text-center text-xs sm:text-sm py-2 px-4 pt-[calc(env(safe-area-inset-top)+0.5rem)]">
+      {site.announcement_link ? <a href={String(site.announcement_link)} className="underline-offset-2 hover:underline">{inner}</a> : inner}
+    </div>
+  );
+};
+
+type DetailState = { slug: string; product: Product | null; status: 'loading' | 'ready' | 'missing' };
+
 function MainApp() {
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, isAdmin, loading } = useAuth();
   const { addToCart, directCheckoutItem, setDirectCheckoutItem } = useCart();
+  const site = useSite();
+  const { unread } = useNotifications();
 
-  // Initialize view: only open admin if the browser URL explicitly requests /admin
-  const [currentView, setCurrentView] = useState<string>(() => {
-    return checkIsAdminUrl() ? 'admin' : 'home';
-  });
-
-  const [viewParams, setViewParams] = useState<any>(null);
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [route, setRoute] = useState<Route>(() => parsePath(window.location.pathname, window.location.search));
   const [allProducts, setAllProducts] = useState<Product[]>([]);
+  const [detail, setDetail] = useState<DetailState | null>(null);
   const [lastPlacedOrder, setLastPlacedOrder] = useState<Order | null>(null);
+  const [updateReg, setUpdateReg] = useState<ServiceWorkerRegistration | null>(null);
 
-  // Sync URL popstate / hashchange (e.g. typing /admin or clicking browser back/forward)
+  // URL <-> view: back/forward, refresh and deep links all work.
   useEffect(() => {
-    const handleUrlChange = () => {
-      if (checkIsAdminUrl()) {
-        setCurrentView('admin');
-      } else {
-        setCurrentView((prev) => (prev === 'admin' ? 'home' : prev));
-      }
-    };
-
-    window.addEventListener('popstate', handleUrlChange);
-    window.addEventListener('hashchange', handleUrlChange);
-    return () => {
-      window.removeEventListener('popstate', handleUrlChange);
-      window.removeEventListener('hashchange', handleUrlChange);
-    };
+    const sync = () => setRoute(parsePath(window.location.pathname, window.location.search));
+    window.addEventListener('popstate', sync);
+    return () => window.removeEventListener('popstate', sync);
   }, []);
+
+  useEffect(() => { void registerServiceWorker(setUpdateReg); }, []);
 
   // Products come from the server only (the database is the single source of truth).
   useEffect(() => {
     apiFetch('/api/products')
-      .then(res => (res.ok ? res.json() : []))
-      .then(data => setAllProducts(Array.isArray(data) ? data : []))
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => setAllProducts(Array.isArray(data) ? data : []))
       .catch(() => setAllProducts([]));
   }, []);
 
-  const handleNavigate = (view: string, data?: any) => {
-    setViewParams(data || null);
-    setCurrentView(view);
-    
-    // Manage browser URL history cleanly
-    if (view === 'admin') {
-      window.history.pushState({}, '', '/admin');
-    } else {
-      if (checkIsAdminUrl()) {
-        window.history.pushState({}, '', '/');
-      }
-    }
+  const handleNavigate = useCallback((view: string, data?: any) => {
+    navigateTo(buildPath(view as View, { filter: data?.filter, tab: data?.tab, slug: data?.slug }));
+  }, []);
 
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  const handleViewProduct = useCallback((product: Product) => {
+    setDetail({ slug: product.slug, product, status: 'ready' });
+    navigateTo(buildPath('product_details', { slug: product.slug }));
+  }, []);
 
-  const handleViewProduct = (product: Product) => {
-    setSelectedProduct(product);
-    setCurrentView('product_details');
-    if (checkIsAdminUrl()) {
-      window.history.pushState({}, '', '/');
-    }
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  // Resolve the product for /products/:slug (from the list, or fetched for direct visits).
+  const slug = route.view === 'product_details' ? route.params.slug : undefined;
+  useEffect(() => {
+    if (!slug) return;
+    const known = allProducts.find((p) => p.slug === slug || p.id === slug);
+    if (known) { setDetail({ slug, product: known, status: 'ready' }); return; }
+    if (detail?.slug === slug && detail.status === 'ready') return;
+    setDetail({ slug, product: null, status: 'loading' });
+    let alive = true;
+    apiFetch(`/api/products/${encodeURIComponent(slug)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((p) => { if (alive) setDetail({ slug, product: p, status: p ? 'ready' : 'missing' }); })
+      .catch(() => { if (alive) setDetail({ slug, product: null, status: 'missing' }); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug, allProducts]);
+
+  // Browser tab title (crawlers already got a server-rendered one).
+  useEffect(() => {
+    const suffix = String(site.seo_title_suffix || '');
+    const titles: Partial<Record<View, string>> = {
+      products: 'جميع المنتجات', cart: 'سلة المشتريات', checkout: 'إتمام الطلب', order_success: 'تم استلام طلبك',
+      portal: 'حسابي', policies: 'السياسات والشروط', notifications: 'الإشعارات', admin: 'لوحة التحكم', login: 'تسجيل الدخول',
+      product_details: detail?.product?.name,
+    };
+    const t = route.view === 'home' ? String(site.seo_title || site.store_name) : titles[route.view] ? `${titles[route.view]}${suffix}` : String(site.store_name);
+    document.title = unread > 0 ? `(${unread}) ${t}` : t;
+  }, [route, site, detail, unread]);
+
+  // Order success needs the order we just created; after a refresh send the customer to their orders.
+  useEffect(() => {
+    if (route.view === 'order_success' && !lastPlacedOrder && isAuthenticated) navigateTo('/portal/orders', true);
+  }, [route.view, lastPlacedOrder, isAuthenticated]);
+
+  // Signed-in users do not need the login page.
+  useEffect(() => {
+    if (route.view === 'login' && isAuthenticated) navigateTo(route.params.next || '/', true);
+  }, [route, isAuthenticated]);
 
   const handleQuickAdd = (product: Product) => {
-    const baseOption = (product.options || []).find(o => o.is_required || o.sort_order === 1);
+    const baseOption = (product.options || []).find((o) => o.is_required || o.sort_order === 1);
     const optionsSnapshot: SelectedOptionSnapshot[] = baseOption ? [{
-      option_id: baseOption.id,
-      name: baseOption.name,
-      price: baseOption.price,
-      description: baseOption.description
+      option_id: baseOption.id, name: baseOption.name, price: baseOption.price, description: baseOption.description,
     }] : [];
-
     addToCart(product, optionsSnapshot);
   };
 
-  const handleAddToCartWithOptions = (product: Product, options: SelectedOptionSnapshot[]) => {
-    addToCart(product, options);
-  };
-
   const handleDirectBuy = (product: Product, options: SelectedOptionSnapshot[]) => {
-    let optionsTotal = 0;
-    if (options.length > 0) {
-      optionsTotal = options.reduce((sum, opt) => sum + opt.price, 0);
-    } else {
-      optionsTotal = product.base_price;
-    }
-
+    const optionsTotal = options.length > 0 ? options.reduce((sum, opt) => sum + opt.price, 0) : product.base_price;
     const item: CartItem = {
-      id: `direct_${Date.now()}`,
-      product,
-      selected_options: options,
-      base_price: product.base_price,
-      options_total: optionsTotal,
-      total_price: optionsTotal,
-      quantity: 1
+      id: `direct_${Date.now()}`, product, selected_options: options, base_price: product.base_price,
+      options_total: optionsTotal, total_price: optionsTotal, quantity: 1,
     };
-
     setDirectCheckoutItem(item);
-    setCurrentView('checkout');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    navigateTo('/checkout');
   };
 
   const handleOrderCreated = (order: Order) => {
     setLastPlacedOrder(order);
-    setCurrentView('order_success');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    navigateTo('/orders/success');
   };
 
-  // If loading session, show clean splash
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-[#06090f] flex items-center justify-center text-emerald-400">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-emerald-950/60 border border-emerald-500/40 flex items-center justify-center font-bold font-mono text-xl animate-pulse">
-            N
-          </div>
-          <span className="text-xs text-slate-400 font-medium">جارٍ تحميل المنصة...</span>
-        </div>
-      </div>
-    );
+  if (loading) return <Splash />;
+
+  const staff = isAuthenticated && isAdmin;
+
+  // Maintenance: everyone except signed-in staff sees the maintenance page.
+  if (site.maintenance_mode && !staff) {
+    if (route.view === 'login' || route.view === 'admin') return <GoogleLoginPage onSuccess={() => navigateTo(route.view === 'admin' ? '/admin' : '/', true)} />;
+    return <MaintenancePage onStaffLogin={() => navigateTo('/login')} />;
   }
 
-  // FIRST PAGE MUST BE GOOGLE SIGN-IN ONLY AS REQUESTED
-  if (!isAuthenticated) {
-    return (
-      <GoogleLoginPage 
-        onSuccess={() => {
-          if (checkIsAdminUrl()) {
-            setCurrentView('admin');
-          } else {
-            setCurrentView('home');
-          }
-        }} 
-      />
-    );
+  // Login wall: always for private areas, and for the whole store when the owner requires it.
+  const needsLogin = !isAuthenticated && (site.require_login_to_browse || PRIVATE_VIEWS.includes(route.view) || route.view === 'login');
+  if (needsLogin) {
+    const next = PRIVATE_VIEWS.includes(route.view) ? window.location.pathname + window.location.search : undefined;
+    return <GoogleLoginPage onSuccess={() => { if (route.view === 'login') navigateTo(route.params.next || '/', true); else if (next && route.view === 'admin') navigateTo(next, true); }} />;
   }
+
+  const view = route.view;
+  const isAdminView = view === 'admin';
 
   return (
     <div className="min-h-screen flex flex-col bg-[#06090f] text-slate-100 selection:bg-emerald-500 selection:text-slate-950 pb-16 lg:pb-0">
-      
-      {/* Show header on all customer pages. Zero admin trace in header! */}
-      {currentView !== 'admin' && (
-        <Header
-          currentView={currentView}
-          setCurrentView={handleNavigate}
-        />
-      )}
+      <ConnectionBanner />
+      <UpdateBanner registration={updateReg} />
+      <ToastHost />
 
-      {/* Main View Router */}
+      {!isAdminView && <AnnouncementBar />}
+      {!isAdminView && <Header currentView={view} setCurrentView={handleNavigate} />}
+
       <main className="flex-1">
-        {currentView === 'home' && (
-          <HomePage
-            onNavigate={handleNavigate}
-            onViewProduct={handleViewProduct}
-            onQuickAdd={handleQuickAdd}
-          />
-        )}
+        <Suspense fallback={<Spinner />}>
+          {view === 'home' && <HomePage onNavigate={handleNavigate} onViewProduct={handleViewProduct} onQuickAdd={handleQuickAdd} />}
 
-        {currentView === 'products' && (
-          <ProductsPage
-            initialFilter={viewParams?.filter}
-            onViewProduct={handleViewProduct}
-            onQuickAdd={handleQuickAdd}
-          />
-        )}
+          {view === 'products' && <ProductsPage initialFilter={route.params.filter} onViewProduct={handleViewProduct} onQuickAdd={handleQuickAdd} />}
 
-        {currentView === 'product_details' && selectedProduct && (
-          <ProductDetailsPage
-            product={selectedProduct}
-            allProducts={allProducts}
-            onBack={() => handleNavigate('products')}
-            onAddToCart={handleAddToCartWithOptions}
-            onDirectBuy={handleDirectBuy}
-            onViewProduct={handleViewProduct}
-          />
-        )}
+          {view === 'product_details' && detail?.status === 'ready' && detail.product && (
+            <ProductDetailsPage
+              product={detail.product}
+              allProducts={allProducts}
+              onBack={() => handleNavigate('products')}
+              onAddToCart={(p, o) => addToCart(p, o)}
+              onDirectBuy={handleDirectBuy}
+              onViewProduct={handleViewProduct}
+            />
+          )}
+          {view === 'product_details' && detail?.status === 'loading' && <Spinner />}
+          {view === 'product_details' && detail?.status === 'missing' && (
+            <div className="max-w-md mx-auto py-24 px-6 text-center">
+              <p className="text-5xl mb-4">🔎</p>
+              <h1 className="text-xl font-bold text-white mb-2">المنتج غير موجود</h1>
+              <p className="text-sm text-slate-400 mb-6">ربما أُزيل المنتج أو تغيّر رابطه.</p>
+              <button onClick={() => handleNavigate('products')} className="px-6 py-2.5 rounded-xl bg-emerald-500 text-slate-950 font-bold text-sm cursor-pointer">تصفح المنتجات</button>
+            </div>
+          )}
 
-        {currentView === 'cart' && (
-          <CartPage
-            onCheckout={() => handleNavigate('checkout')}
-            onBrowseProducts={() => handleNavigate('products')}
-            onViewProduct={handleViewProduct}
-          />
-        )}
+          {view === 'cart' && <CartPage onCheckout={() => handleNavigate('checkout')} onBrowseProducts={() => handleNavigate('products')} onViewProduct={handleViewProduct} />}
 
-        {currentView === 'checkout' && (
-          <CheckoutPage
-            directItem={directCheckoutItem}
-            onOrderCreated={handleOrderCreated}
-            onBackToCart={() => handleNavigate('cart')}
-          />
-        )}
+          {view === 'checkout' && <CheckoutPage directItem={directCheckoutItem} onOrderCreated={handleOrderCreated} onBackToCart={() => handleNavigate('cart')} />}
 
-        {currentView === 'order_success' && lastPlacedOrder && (
-          <OrderSuccessPage
-            order={lastPlacedOrder}
-            onGoToPortal={() => handleNavigate('portal')}
-            onContinueShopping={() => handleNavigate('products')}
-          />
-        )}
+          {view === 'order_success' && lastPlacedOrder && (
+            <OrderSuccessPage order={lastPlacedOrder} onGoToPortal={() => handleNavigate('portal')} onContinueShopping={() => handleNavigate('products')} />
+          )}
 
-        {currentView === 'portal' && (
-          <CustomerPortal
-            initialTab={viewParams?.tab || 'downloads'}
-            onNavigateHome={() => handleNavigate('home')}
-            onViewProduct={(slug) => {
-              const p = allProducts.find(item => item.slug === slug);
-              if (p) handleViewProduct(p);
-            }}
-          />
-        )}
+          {view === 'portal' && (
+            <CustomerPortal
+              key={route.params.tab}
+              initialTab={route.params.tab || 'downloads'}
+              onNavigateHome={() => handleNavigate('home')}
+              onViewProduct={(s) => { const p = allProducts.find((item) => item.slug === s); if (p) handleViewProduct(p); }}
+            />
+          )}
 
-        {currentView === 'policies' && (
-          <PoliciesPage
-            initialTab={viewParams?.tab || 'terms'}
-            onBack={() => handleNavigate('home')}
-          />
-        )}
+          {view === 'notifications' && <NotificationsPage />}
 
-        {/* Admin Dashboard: Exclusively at /admin with zero presence in customer views */}
-        {currentView === 'admin' && (
-          <AdminDashboard
-            onBackToStore={() => {
-              window.history.pushState({}, '', '/');
-              handleNavigate('home');
-            }}
-            onViewProductLive={(p) => {
-              window.history.pushState({}, '', '/');
-              handleViewProduct(p);
-            }}
-          />
-        )}
+          {view === 'policies' && <PoliciesPage key={route.params.tab} initialTab={route.params.tab || 'terms'} onBack={() => handleNavigate('home')} />}
+
+          {isAdminView && (
+            <AdminDashboard
+              initialTab={route.params.tab}
+              onBackToStore={() => handleNavigate('home')}
+              onViewProductLive={(p) => handleViewProduct(p)}
+            />
+          )}
+        </Suspense>
       </main>
 
-      {/* Show footer on all customer pages */}
-      {currentView !== 'admin' && (
-        <Footer onNavigate={handleNavigate} />
-      )}
-
-      {/* Mobile Bottom Navigation Bar: Customer-only tabs (Zero admin presence) */}
-      {currentView !== 'admin' && (
-        <MobileBottomNav
-          currentView={currentView}
-          onNavigate={handleNavigate}
-        />
-      )}
-
+      {!isAdminView && <Footer onNavigate={handleNavigate} />}
+      {!isAdminView && <MobileBottomNav currentView={view} onNavigate={handleNavigate} />}
+      {!isAdminView && <InstallPrompt />}
     </div>
   );
 }
 
 export default function App() {
   return (
-    <AuthProvider>
-      <CartProvider>
-        <MainApp />
-      </CartProvider>
-    </AuthProvider>
+    <ErrorBoundary>
+      <SiteProvider>
+        <AuthProvider>
+          <NotificationsProvider>
+            <CartProvider>
+              <MainApp />
+            </CartProvider>
+          </NotificationsProvider>
+        </AuthProvider>
+      </SiteProvider>
+    </ErrorBoundary>
   );
 }

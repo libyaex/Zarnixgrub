@@ -154,7 +154,7 @@ export const BankTransferModal: React.FC<BankTransferModalProps> = ({
           <div>
             <span className="text-xs text-emerald-300 block">المبلغ المطلوب تحويله بالدينار الليبي:</span>
             <span className="text-2xl font-black text-white tabular-nums">
-              {order.total_amount.toLocaleString('ar-LY')} <span className="text-sm font-normal text-slate-300">دينار ليبي</span>
+              {order.total_amount.toLocaleString('en-US')} <span className="text-sm font-normal text-slate-300">دينار ليبي</span>
             </span>
           </div>
           <span className="text-xs text-emerald-300 bg-emerald-900/60 px-3 py-1 rounded-md border border-emerald-700/50">

@@ -17,13 +17,20 @@ import { ServiceTaskModal } from '../../components/admin/ServiceTaskModal';
 import { AuditDetailsModal } from '../../components/admin/AuditDetailsModal';
 import { 
   Product, Category, Order, PaymentAccount, DownloadEntitlement, 
-  DownloadLog, ServiceTask, Coupon, AuditLog, SiteSettings, UserRole,
+  DownloadLog, ServiceTask, Coupon, AuditLog, UserRole,
   RoleItem, PermissionKey, ProductOption, TechnicalRequirement, ProductFile
 } from '../../types';
 import { apiFetch, apiJson, errorMessage } from '../../lib/api';
 import { uploadViaSignedUrl, uploadPublicImage, dataUrlToFile } from '../../lib/uploads';
+import { SettingsManager } from '../../components/admin/SettingsManager';
+import { NotificationsAdmin } from '../../components/admin/NotificationsAdmin';
+import { MonthlyRevenueChart } from '../../components/admin/MonthlyRevenueChart';
+import { NotificationBell } from '../../components/notifications/NotificationUI';
+import { useSite } from '../../context/SiteContext';
 
 interface AdminDashboardProps {
+  /** Tab from the URL (?tab=payments) so notifications and refreshes land on the right screen. */
+  initialTab?: string;
   onBackToStore: () => void;
   onViewProductLive?: (product: Product) => void;
 }
@@ -92,8 +99,9 @@ export const compressImage = (file: File, maxWidth = 1200, quality = 0.75): Prom
   });
 };
 
-export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, onViewProductLive }) => {
+export const AdminDashboard: React.FC<AdminDashboardProps> = ({ initialTab, onBackToStore, onViewProductLive }) => {
   const { user, role, permissions } = useAuth();
+  const site = useSite();
 
   // Permissions come from the server (built-in AND custom roles); no email/role-name guessing here.
   // The server re-checks every request, so this only decides what the UI shows.
@@ -101,7 +109,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
   const can = (permission: string) => isSuperAdminOrOwner || permissions.includes(permission);
 
   // Navigation sidebar item
-  const [activeTab, setActiveTab] = useState<string>('overview');
+  const [activeTab, setActiveTabState] = useState<string>(initialTab || 'overview');
+  const setActiveTab = (tab: string) => {
+    setActiveTabState(tab);
+    window.history.replaceState({}, '', tab === 'overview' ? '/admin' : `/admin?tab=${encodeURIComponent(tab)}`);
+  };
+  // A notification can deep-link to another tab while the dashboard is already open.
+  useEffect(() => { if (initialTab) setActiveTabState(initialTab); }, [initialTab]);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Core Data States
@@ -116,7 +130,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
-  const [siteSettings, setSiteSettings] = useState<SiteSettings | null>(null);
   const [rolesList, setRolesList] = useState<RoleItem[]>([]);
   const [staffList, setStaffList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -172,7 +185,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
       }
     };
     try {
-      const [st, prods, cats, ords, banks, ents, logs, tasks, coups, audit, sets, custs, roleRows, staff] = await Promise.all([
+      const [st, prods, cats, ords, banks, ents, logs, tasks, coups, audit, custs, roleRows, staff] = await Promise.all([
         get<any>(true, '/api/admin/stats', null),
         get<Product[]>(can('manage_products'), '/api/admin/products', []),
         get<Category[]>(can('manage_products'), '/api/admin/categories', []),
@@ -183,7 +196,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
         get<ServiceTask[]>(can('manage_services'), '/api/admin/services', []),
         get<Coupon[]>(can('manage_coupons'), '/api/admin/coupons', []),
         get<AuditLog[]>(can('view_audit_logs'), '/api/admin/audit', []),
-        get<any>(can('manage_settings'), '/api/admin/settings', null),
         get<any[]>(can('manage_users'), '/api/admin/customers', []),
         get<RoleItem[]>(true, '/api/admin/roles', []),
         get<any[]>(can('manage_users') || can('manage_roles_permissions'), '/api/admin/staff', []),
@@ -199,7 +211,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
       setServiceTasks(Array.isArray(tasks) ? tasks : []);
       setCoupons(Array.isArray(coups) ? coups : []);
       setAuditLogs(Array.isArray(audit) ? audit : []);
-      if (sets) setSiteSettings(sets);
       setCustomers(Array.isArray(custs) ? custs : []);
       setRolesList(Array.isArray(roleRows) ? roleRows : []);
       setStaffList(Array.isArray(staff) ? staff : []);
@@ -295,6 +306,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
     { id: 'banks', label: 'الحسابات المصرفية', icon: Building2, permission: can('manage_banks') },
     { id: 'coupons', label: 'الكوبونات والخصومات', icon: Tag, permission: can('manage_coupons') },
     { id: 'audit', label: 'سجل التدقيق (Audit Log)', icon: ShieldAlert, permission: can('view_audit_logs') },
+    { id: 'notifications', label: 'الإشعارات والبث', icon: Bell, permission: can('manage_settings') },
     { id: 'settings', label: 'إعدادات المنصة وSEO', icon: Settings, permission: can('manage_settings') },
   ];
 
@@ -359,11 +371,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
 
           <div className="flex items-center gap-2.5">
             <div className="relative w-7 h-7 rounded-full p-0.5 bg-gradient-to-tr from-cyan-500 via-blue-500 to-emerald-400 overflow-hidden flex items-center justify-center shrink-0 shadow-md shadow-cyan-900/40">
-              <img src="/logo.png" alt="ZARNIX-Group" className="w-full h-full object-cover rounded-full" />
+              <img src={String(site.logo_url)} alt={String(site.store_name)} className="w-full h-full object-cover rounded-full" />
             </div>
             <span className="font-bold text-white text-xs sm:text-sm tracking-tight">لوحة الإدارة المركزية</span>
             <span className="hidden md:inline text-[11px] text-cyan-400 font-mono bg-cyan-950/80 px-2 py-0.5 rounded border border-cyan-800/60 font-bold">
-              ZARNIX-Group
+              {String(site.store_name)}
             </span>
           </div>
         </div>
@@ -377,10 +389,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
             </span>
           </div>
 
+          <NotificationBell />
+
           <button
             onClick={loadAdminData}
             className="p-2 rounded-lg bg-slate-800 text-slate-300 hover:text-white transition-colors"
             title="تحديث فوري للبيانات"
+            aria-label="تحديث فوري للبيانات"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-cyan-400' : ''}`} />
           </button>
@@ -498,7 +513,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
                     <DollarSign className="w-4 h-4 text-emerald-400" />
                   </div>
                   <div className="text-2xl font-black text-white font-mono tabular-nums">
-                    {stats.confirmed_revenue_lyd?.toLocaleString('ar-LY')} <span className="text-xs font-normal text-slate-400">د.ل</span>
+                    {stats.confirmed_revenue_lyd?.toLocaleString('en-US')} <span className="text-xs font-normal text-slate-400">د.ل</span>
                   </div>
                   <p className="text-[10px] text-emerald-400">
                     مبيعات معتمدة الحوالة المصرفية فقط
@@ -551,6 +566,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
                 </div>
 
               </div>
+
+              {Array.isArray(stats.monthly_revenue) && stats.monthly_revenue.length > 0 && (
+                <MonthlyRevenueChart data={stats.monthly_revenue} currency={String(site.currency)} />
+              )}
 
               {/* Quick Jump / Shortcuts */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -712,7 +731,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
                               <td className="py-3 px-4 text-slate-300 font-medium">{p.category_name || 'عام'}</td>
 
                               <td className="py-3 px-4 font-mono font-bold text-emerald-400 tabular-nums">
-                                {p.base_price?.toLocaleString('ar-LY')} <span className="text-[10px] text-slate-400 font-sans">د.ل</span>
+                                {p.base_price?.toLocaleString('en-US')} <span className="text-[10px] text-slate-400 font-sans">د.ل</span>
                               </td>
 
                               <td className="py-3 px-4 text-slate-400">
@@ -793,7 +812,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
                               <p className="text-[11px] text-slate-400 mt-0.5 truncate">{p.category_name}</p>
                               <div className="flex items-center gap-2 mt-1">
                                 <span className="font-mono font-bold text-emerald-400 text-xs">
-                                  {p.base_price?.toLocaleString('ar-LY')} د.ل
+                                  {p.base_price?.toLocaleString('en-US')} د.ل
                                 </span>
                                 <span className={`px-1.5 py-0.2 rounded text-[10px] font-semibold ${
                                   p.status === 'published' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-slate-800 text-slate-400'
@@ -1279,7 +1298,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
                               <span className="text-[11px] text-slate-400 font-mono">{o.customer_phone}</span>
                             </td>
                             <td className="py-3 px-4 font-mono font-bold text-emerald-400">
-                              {o.total_amount?.toLocaleString('ar-LY')} د.ل
+                              {o.total_amount?.toLocaleString('en-US')} د.ل
                             </td>
                             <td className="py-3 px-4">
                               <span className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
@@ -1471,7 +1490,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
                           <td className="py-3 px-4 font-mono font-bold text-white">{c.total_orders_count || 0}</td>
                           <td className="py-3 px-4 font-mono text-emerald-400">{c.paid_orders_count || 0}</td>
                           <td className="py-3 px-4 font-mono font-bold text-emerald-400">
-                            {(c.total_spent_lyd || 0).toLocaleString('ar-LY')} د.ل
+                            {(c.total_spent_lyd || 0).toLocaleString('en-US')} د.ل
                           </td>
                           <td className="py-3 px-4 font-mono text-cyan-400">{c.active_entitlements_count || 0}</td>
                           <td className="py-3 px-4">
@@ -1912,7 +1931,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
                             {JSON.stringify(log.details)}
                           </td>
                           <td className="py-3 px-4 text-slate-500 text-[11px]">
-                            {new Date(log.created_at).toLocaleString('ar-LY')}
+                            {new Date(log.created_at).toLocaleString('en-US')}
                           </td>
                         </tr>
                       ))}
@@ -1926,97 +1945,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToStore, o
           {/* ================================================================= */}
           {/* 14. SETTINGS TAB */}
           {/* ================================================================= */}
-          {activeTab === 'settings' && siteSettings && (
-            <div className="space-y-6 animate-fade-in max-w-4xl">
-              <div>
-                <h2 className="text-xl sm:text-2xl font-black text-white">إعدادات المنصة والهوية وSEO</h2>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  بيانات التواصل في طرابلس، وسياسات الاستخدام، ومؤشرات محركات البحث
-                </p>
-              </div>
+          {activeTab === 'settings' && <SettingsManager onToast={showToast} />}
 
-              <form onSubmit={async (e) => {
-                e.preventDefault();
-                const form = e.target as any;
-                const updated = {
-                  store_name: form.store_name.value,
-                  store_description: form.store_description.value,
-                  support_phone: form.support_phone.value,
-                  support_email: form.support_email.value,
-                  whatsapp_number: form.whatsapp_number.value,
-                  telegram_username: form.telegram_username.value,
-                  hero_title: form.hero_title.value,
-                  hero_subtitle: form.hero_subtitle.value,
-                  default_download_limit: Number(form.default_download_limit.value),
-                  default_download_expiry_days: Number(form.default_download_expiry_days.value)
-                };
-
-                try {
-                  await apiJson('/api/admin/settings', {
-                    method: 'PUT',
-                    body: { entries: Object.entries(updated).map(([key, value]) => ({ key, value })) }
-                  });
-                  showToast('تم حفظ الإعدادات بنجاح');
-                  loadAdminData();
-                } catch (err) {
-                  showToast(errorMessage(err, 'تعذر حفظ الإعدادات'));
-                }
-              }} className="p-6 rounded-2xl bg-slate-900 border border-slate-800 space-y-4 text-xs">
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-slate-300 font-bold block mb-1">اسم المنصة الرسمي</label>
-                    <input name="store_name" defaultValue={siteSettings.store_name} className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white font-bold" />
-                  </div>
-                  <div>
-                    <label className="text-slate-300 font-bold block mb-1">هاتف الدعم (ليبيا)</label>
-                    <input name="support_phone" defaultValue={siteSettings.support_phone} className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono" />
-                  </div>
-                  <div>
-                    <label className="text-slate-300 font-bold block mb-1">البريد الإلكتروني للدعم</label>
-                    <input name="support_email" defaultValue={siteSettings.support_email} className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono" />
-                  </div>
-                  <div>
-                    <label className="text-slate-300 font-bold block mb-1">رقم الواتساب</label>
-                    <input name="whatsapp_number" defaultValue={siteSettings.whatsapp_number} className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono" />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-slate-300 font-bold block mb-1">وصف المنصة لـ SEO</label>
-                  <textarea name="store_description" rows={2} defaultValue={siteSettings.store_description} className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white" />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-slate-300 font-bold block mb-1">عنوان الهيرو الرئيسي</label>
-                    <input name="hero_title" defaultValue={siteSettings.hero_title} className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white" />
-                  </div>
-                  <div>
-                    <label className="text-slate-300 font-bold block mb-1">حساب تليجرام للدعم</label>
-                    <input name="telegram_username" defaultValue={siteSettings.telegram_username} className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono" />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-slate-300 font-bold block mb-1">حد محاولات التنزيل الافتراضي</label>
-                    <input type="number" name="default_download_limit" defaultValue={siteSettings.default_download_limit} className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono" />
-                  </div>
-                  <div>
-                    <label className="text-slate-300 font-bold block mb-1">صلاحية التحميل بالأيام</label>
-                    <input type="number" name="default_download_expiry_days" defaultValue={siteSettings.default_download_expiry_days} className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono" />
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-end pt-4 border-t border-slate-800">
-                  <button type="submit" className="px-6 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold rounded-xl shadow-lg shadow-emerald-950/40 cursor-pointer">
-                    حفظ التغييرات
-                  </button>
-                </div>
-              </form>
-            </div>
-          )}
+          {activeTab === 'notifications' && <NotificationsAdmin onToast={showToast} />}
 
         </main>
       </div>
@@ -2866,6 +2797,11 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, categories
                 <span>إضافة خيار تسعير</span>
               </button>
             </div>
+
+            <p className="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 leading-relaxed">
+              <strong>طريقة حساب السعر:</strong> الإجمالي = مجموع الخيارات التي يحددها العميل، و«السعر الأساسي» أعلاه يظهر فقط كسعر «يبدأ من» ويُستخدم إن لم يُحدَّد أي خيار.
+              لذلك اجعل الخيار الأول <strong>إلزامياً</strong> بسعر الملفات الأساسي (مثلاً 450)، وأضف الخدمات الإضافية كخيارات منفصلة (مثلاً التركيب 180) فيصبح الإجمالي 630.
+            </p>
 
             <div className="space-y-2">
               {options.map((opt, idx) => (

@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
-import { ShoppingBag, User, Menu, X, LogOut } from 'lucide-react';
+import { ShoppingBag, User, Menu, X, LogOut, LogIn } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
+import { useSite } from '../context/SiteContext';
+import { NotificationBell } from './notifications/NotificationUI';
+import { navigateTo } from '../lib/nav';
 
 interface HeaderProps {
   currentView: string;
@@ -9,7 +12,8 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView }) => {
-  const { user, logout } = useAuth();
+  const { user, logout, isAuthenticated } = useAuth();
+  const site = useSite();
   const { itemCount } = useCart();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -30,17 +34,17 @@ export const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView }) =
           >
             <div className="relative w-9 h-9 sm:w-11 sm:h-11 rounded-full p-0.5 bg-gradient-to-tr from-cyan-500 via-blue-500 to-emerald-400 shadow-lg shadow-cyan-950/50 shrink-0 overflow-hidden flex items-center justify-center">
               <img
-                src="/logo.png"
-                alt="شعار ZARNIX-Group"
+                src={String(site.logo_url)}
+                alt={`شعار ${site.store_name}`}
                 className="w-full h-full object-cover rounded-full"
               />
             </div>
             <div className="flex flex-col min-w-0">
               <span className="text-sm sm:text-lg font-black tracking-tight text-white group-hover:text-cyan-400 transition-colors truncate">
-                ZARNIX-Group
+                {String(site.store_name)}
               </span>
               <span className="text-[10px] sm:text-xs text-slate-400 truncate hidden xs:block">
-                منصة البرمجيات والأنظمة الرقمية
+                {String(site.store_tagline)}
               </span>
             </div>
           </button>
@@ -94,6 +98,9 @@ export const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView }) =
             <span>{user?.full_name?.split(' ')[0] || 'حسابي'}</span>
           </button>
 
+          {/* Notifications (signed-in only) */}
+          {isAuthenticated && <NotificationBell />}
+
           {/* Shopping Cart Button */}
           <button
             onClick={() => handleNavClick('cart')}
@@ -108,14 +115,24 @@ export const Header: React.FC<HeaderProps> = ({ currentView, setCurrentView }) =
             )}
           </button>
 
-          {/* Logout (Desktop) */}
-          <button
-            onClick={() => logout()}
-            className="hidden sm:flex items-center justify-center w-10 h-10 rounded-xl bg-slate-900 border border-slate-700/80 text-slate-400 hover:text-rose-400 hover:border-rose-900 transition-colors cursor-pointer shrink-0"
-            title="تسجيل الخروج والعودة لصفحة Google"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
+          {/* Logout / Login (Desktop) */}
+          {isAuthenticated ? (
+            <button
+              onClick={() => logout()}
+              className="hidden sm:flex items-center justify-center w-10 h-10 rounded-xl bg-slate-900 border border-slate-700/80 text-slate-400 hover:text-rose-400 hover:border-rose-900 transition-colors cursor-pointer shrink-0"
+              title="تسجيل الخروج"
+              aria-label="تسجيل الخروج"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          ) : (
+            <button
+              onClick={() => navigateTo('/login')}
+              className="hidden sm:flex items-center gap-1.5 px-4 h-10 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition-colors cursor-pointer shrink-0"
+            >
+              <LogIn className="w-4 h-4" /> دخول
+            </button>
+          )}
 
           {/* Mobile Hamburger Toggle */}
           <button

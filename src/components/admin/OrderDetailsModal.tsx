@@ -78,7 +78,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 font-mono mt-0.5">
-                تاريخ الطلب: {new Date(order.created_at).toLocaleString('ar-LY')}
+                تاريخ الطلب: {new Date(order.created_at).toLocaleString('en-US')}
               </p>
             </div>
           </div>
@@ -141,7 +141,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                   </div>
                 </div>
                 <div className="text-left font-mono font-bold text-emerald-400 text-xs shrink-0">
-                  {item.total_price?.toLocaleString('ar-LY')} د.ل
+                  {item.total_price?.toLocaleString('en-US')} د.ل
                 </div>
               </div>
             ))}
@@ -152,17 +152,17 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
         <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2 font-mono">
           <div className="flex justify-between text-slate-400">
             <span>المجموع الفرعي:</span>
-            <span>{order.subtotal_amount?.toLocaleString('ar-LY')} د.ل</span>
+            <span>{order.subtotal_amount?.toLocaleString('en-US')} د.ل</span>
           </div>
           {order.discount_amount > 0 && (
             <div className="flex justify-between text-emerald-400">
               <span>خصم الكوبون ({order.coupon_code || 'تخفيض'}):</span>
-              <span>- {order.discount_amount?.toLocaleString('ar-LY')} د.ل</span>
+              <span>- {order.discount_amount?.toLocaleString('en-US')} د.ل</span>
             </div>
           )}
           <div className="flex justify-between text-white font-bold text-sm pt-2 border-t border-slate-800">
             <span>الإجمالي المطلوب:</span>
-            <span className="text-emerald-400 font-extrabold">{order.total_amount?.toLocaleString('ar-LY')} د.ل</span>
+            <span className="text-emerald-400 font-extrabold">{order.total_amount?.toLocaleString('en-US')} د.ل</span>
           </div>
         </div>
 

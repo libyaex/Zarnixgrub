@@ -8,7 +8,7 @@
  *
  *  - receipts  -> private `payment_receipts`, under `<userId>/...`
  *  - projects  -> private `project_files` (requires manage_products)
- *  - images    -> public `product_images` (requires manage_products; cover/gallery)
+ *  - images    -> public `product_images` (manage_products or manage_settings: covers, logo, favicon)
  */
 import { Router, type Request, type Response } from 'express';
 import { supabaseAdmin } from '../lib/supabaseAdmin.ts';
@@ -44,8 +44,9 @@ uploadRouter.post('/sign', requireAuth, async (req: Request, res: Response) => {
   const isReceipt = kind === 'receipt';
   const isImage = kind === 'image';
   if (isImage) {
-    if (!hasPermission(req.user!.permissions, 'manage_products')) {
-      res.status(403).json({ error: 'ليست لديك صلاحية رفع صور المنتجات', code: 'forbidden' });
+    // Cover/gallery images (products) and branding images (logo, favicon, share image).
+    if (!hasPermission(req.user!.permissions, 'manage_products') && !hasPermission(req.user!.permissions, 'manage_settings')) {
+      res.status(403).json({ error: 'ليست لديك صلاحية رفع الصور', code: 'forbidden' });
       return;
     }
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(mimeType)) {

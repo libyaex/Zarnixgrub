@@ -153,13 +153,13 @@ export const ReceiptViewerModal: React.FC<ReceiptViewerModalProps> = ({
               <div className="flex justify-between">
                 <span className="text-slate-400">المبلغ المحول:</span>
                 <span className="font-mono font-bold text-emerald-400 text-sm">
-                  {sub.transferred_amount.toLocaleString('ar-LY')} د.ل
+                  {sub.transferred_amount.toLocaleString('en-US')} د.ل
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">المبلغ المطلوب للطلب:</span>
                 <span className="font-mono font-bold text-white text-sm">
-                  {order.total_amount.toLocaleString('ar-LY')} د.ل
+                  {order.total_amount.toLocaleString('en-US')} د.ل
                 </span>
               </div>
               <div className="flex justify-between">

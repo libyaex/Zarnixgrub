@@ -1,52 +1,55 @@
 # خطوات النشر (بالترتيب)
 
 ## 1) قاعدة البيانات — Supabase → SQL Editor
-نفّذ بهذا الترتيب بالضبط (كلها قابلة لإعادة التشغيل دون ضرر):
+نفّذ بهذا الترتيب (كلها قابلة لإعادة التشغيل دون ضرر):
 
 1. `supabase/schema.sql`
 2. `supabase/phase1-hardening.sql` — الأدوار والفهارس
 3. `supabase/phase2-auto-provision.sql` — إنشاء `profiles` تلقائياً + RLS
-4. `supabase/phase3-complete.sql` — **جديد**: الأدوار المخصصة، دعوات الموظفين،
-   مهام الخدمة اليدوية، فهارس التكامل، دالة الكوبون الذرية، وحاويات التخزين
-   (`project_files` و`payment_receipts` خاصتان، `product_images` عامة).
+4. `supabase/phase3-complete.sql` — الأدوار المخصصة، دعوات الموظفين، مهام الخدمة اليدوية، فهارس التكامل، دالة الكوبون الذرية، وحاويات التخزين (`project_files` و`payment_receipts` خاصتان، `product_images` عامة)
+5. `supabase/phase4-notifications.sql` — **جديد**: جداول الإشعارات والاشتراكات والتفضيلات + تفعيل Realtime للإشعارات الحية
 
-> الخادم يعمل حتى قبل تنفيذ الخطوة 4 (يتراجع بأمان)، لكن الأدوار المخصصة ودعوات
-> الموظفين ورفع الملفات تحتاجها.
+> الخادم يعمل حتى قبل الخطوتين 4 و5 (يتراجع بأمان)، لكن الأدوار المخصصة والرفع والإشعارات تحتاجهما.
 
 ## 2) Supabase → Authentication
-- **Providers → Google**: فعّله وأضف Client ID/Secret من Google Cloud.
-- **URL Configuration**:
-  - *Site URL* = رابط موقعك الفعلي (`https://your-domain`).
-  - *Redirect URLs*: أضف نفس الرابط (و`http://localhost:3000` للتطوير).
-  - إن لم يكن النطاق مدرجاً هنا يعيدك Supabase إلى Site URL ولا تُنشأ جلسة
-    (سبب شائع لحلقة "العودة لصفحة الدخول").
+- **Providers → Google**: فعّله وأضف Client ID/Secret.
+- **URL Configuration**: *Site URL* = رابط موقعك، وأضف نفس الرابط (و`http://localhost:3000` للتطوير) في *Redirect URLs*.
 
-## 3) Vercel → Settings → Environment Variables
+## 3) مفاتيح إشعارات الهاتف (Web Push)
+```bash
+node scripts/generate-vapid.mjs
+```
+انسخ القيم الثلاث إلى Vercel (`VAPID_PUBLIC_KEY`، `VAPID_PRIVATE_KEY`، `VAPID_SUBJECT`). بدونها تعمل الإشعارات داخل التطبيق فقط (الجرس والتنبيهات)، ولا يظهر خطأ.
+
+## 4) Vercel → Settings → Environment Variables
 | المتغير | ملاحظة |
 |---|---|
-| `VITE_SUPABASE_URL` | رابط المشروع (للمتصفح) |
-| `VITE_SUPABASE_ANON_KEY` | مفتاح anon (عام بطبيعته) |
-| `SUPABASE_URL` | **نفس** رابط المشروع (للخادم) |
-| `SUPABASE_SERVICE_ROLE_KEY` | **سري** — لا تضعه في أي ملف أو متغير `VITE_` |
-| `OWNER_EMAIL` | أول دخول موثّق بهذا البريد يصبح `owner` تلقائياً |
+| `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` | للمتصفح (عامّان) |
+| `SUPABASE_URL` | نفس رابط المشروع (للخادم) |
+| `SUPABASE_SERVICE_ROLE_KEY` | **سري** — لا يوضع في أي متغير `VITE_` |
+| `OWNER_EMAIL` | أول دخول موثّق بهذا البريد يصبح `owner` |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | إشعارات الهاتف |
 
-لم يعد هناك مفتاح احتياطي مدمج في الكود: إن غاب `VITE_SUPABASE_*` لن يعمل الدخول.
-بعد أي تغيير في المتغيرات **أعد النشر** (Redeploy).
+بعد أي تغيير في المتغيرات **أعد النشر**.
 
-## 4) التحقق بعد النشر
-1. افتح `https://your-domain/api/health` → يجب أن ترى `"ok": true` وأن
-   `supabase_host` يطابق مشروعك.
-2. سجّل الدخول بحساب `OWNER_EMAIL` → يجب أن تظهر لوحة التحكم.
-3. أنشئ تصنيفاً ثم منتجاً وارفع ملف مشروع (zip) → افتح المنتج وتأكد أن الملف
-   ظهر في قائمة الملفات.
-4. من حساب عميل آخر: اطلب المنتج → أرسل إثبات تحويل → اعتمده من لوحة التحكم →
-   يجب أن يظهر التنزيل في بوابة العميل.
+## 5) كيف تعمل SEO وPWA على Vercel
+`vercel.json` يحوّل صفحات التطبيق و`/manifest.webmanifest` و`/robots.txt` و`/sitemap.xml` إلى دالة الخادم، فتُكتب وسوم SEO (العنوان، الوصف، Open Graph، JSON-LD) من **إعدادات لوحة التحكم** قبل وصول الصفحة للمتصفح أو لعناكب البحث. الملفات الساكنة (`/assets`، `/icons`، `/sw.js`) تُخدم مباشرة.
 
-## 5) تشغيل محلي
+## 6) التحقق بعد النشر
+1. `/api/health` → `"ok": true` وأن `supabase_host` يطابق مشروعك.
+2. سجّل الدخول بحساب `OWNER_EMAIL` → لوحة التحكم.
+3. **الإعدادات**: غيّر اسم المنصة أو الشعار → احفظ → يتغير الموقع فوراً.
+4. **SEO**: افتح `/robots.txt` و`/sitemap.xml` و`/manifest.webmanifest`. للفهرسة عطّل «اشتراط تسجيل الدخول لتصفح المتجر» (مفعّل افتراضياً حفاظاً على السلوك السابق).
+5. **PWA**: على Android Chrome تظهر بطاقة «ثبّت التطبيق» بعد الزيارة الثانية. على iPhone: Safari → مشاركة → إضافة إلى الشاشة الرئيسية (الإشعارات على iOS تتطلب iOS 16.4+ والتطبيق مثبّتاً).
+6. **الإشعارات**: من صفحة الإشعارات ← الإعدادات فعّل إشعارات الجهاز ثم «إشعار تجريبي». ثم من لوحة التحكم ← الإشعارات والبث أرسل إعلاناً.
+7. الدورة الكاملة: منتج + ملف zip → طلب من حساب عميل → إيصال → اعتماد → تنزيل (وتصل إشعارات للمراجع ثم للعميل).
+
+## 7) تشغيل محلي
 ```bash
 cp .env.example .env     # املأ القيم
 bun install              # أو npm install
-npm run dev              # الخادم على :3000
+npm run dev              # الخادم على :3000 (يخدم dist بعد npm run build)
 npm run dev:web          # الواجهة (Vite) مع proxy إلى :3000
 npm run verify           # اختبارات + فحص أنواع + بناء
 ```
+> الـ Service Worker لا يُسجَّل في وضع التطوير (يعمل في نسخة الإنتاج فقط) حتى لا يلتبس عليك التخزين المؤقت.

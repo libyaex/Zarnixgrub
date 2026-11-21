@@ -71,7 +71,7 @@ export const CustomerDetailsModal: React.FC<CustomerDetailsModalProps> = ({
           <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 text-center">
             <span className="text-[11px] text-slate-400 block mb-1">إجمالي الإنفاق</span>
             <span className="font-mono font-black text-emerald-400 text-sm sm:text-base">
-              {(customer.total_spent_lyd || 0).toLocaleString('ar-LY')} د.ل
+              {(customer.total_spent_lyd || 0).toLocaleString('en-US')} د.ل
             </span>
           </div>
 
@@ -155,7 +155,7 @@ export const CustomerDetailsModal: React.FC<CustomerDetailsModalProps> = ({
 
                   <div className="flex items-center gap-3">
                     <span className="font-mono font-bold text-emerald-400 text-xs">
-                      {o.total_amount?.toLocaleString('ar-LY')} د.ل
+                      {o.total_amount?.toLocaleString('en-US')} د.ل
                     </span>
                     <button
                       onClick={() => {

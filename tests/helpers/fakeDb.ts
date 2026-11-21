@@ -48,6 +48,8 @@ export function createFakeDb(seed: Record<string, Row[]> = {}) {
     in(c: string, v: any[]) { this.filters.push((r) => v.includes(r[c])); return this; }
     is(c: string, v: any) { this.filters.push((r) => (v === null ? r[c] == null : r[c] === v)); return this; }
     lt(c: string, v: any) { this.filters.push((r) => r[c] < v); return this; }
+    gte(c: string, v: any) { this.filters.push((r) => r[c] >= v); return this; }
+    not(c: string, op: string, v: any) { if (op === 'is') this.filters.push((r) => (v === null ? r[c] != null : r[c] !== v)); return this; }
     order(col: string, o?: { ascending?: boolean }) { this.ordering = { col, asc: o?.ascending !== false }; return this; }
     range(f: number, t: number) { this.from_ = f; this.to_ = t; return this; }
     limit(n: number) { this.to_ = n - 1; return this; }

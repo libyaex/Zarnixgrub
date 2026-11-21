@@ -16,12 +16,13 @@ import { audit } from '../lib/audit.ts';
 import { isOwnReceiptPath, isUuid } from '../lib/validators.ts';
 import { shapeOrder } from '../lib/shape.ts';
 import { RECEIPT_BUCKET, storageObjectExists } from './upload.ts';
+import * as events from '../lib/events.ts';
+import { loadSiteConfig } from '../lib/siteConfig.ts';
 
 export const paymentsRouter = Router();
 
 /** Amount mismatch tolerance for bank transfers (LYD has no cents in practice). */
 const AMOUNT_TOLERANCE = 1;
-const DEFAULT_ALLOWED_DOWNLOADS = 3;
 
 /** POST /api/payments/submit — the customer submits proof for their OWN order. */
 paymentsRouter.post('/submit', requireAuth, async (req: Request, res: Response) => {
@@ -106,6 +107,7 @@ paymentsRouter.post('/submit', requireAuth, async (req: Request, res: Response) 
 
   const { data: fresh } = await supabaseAdmin
     .from('orders').select('*, order_items(*), payment_submissions(*)').eq('id', order.id).single();
+  await events.paymentSubmitted({ id: order.id, order_number: fresh?.order_number ?? '', total_amount: order.total_amount }, req.user!.full_name, req.user!.id);
   res.status(201).json({ submission, order: fresh ? shapeOrder(fresh) : undefined });
 });
 
@@ -185,6 +187,10 @@ paymentsRouter.post('/review', requireAuth, requirePermission('approve_payments'
       return;
     }
 
+    const cfg = await loadSiteConfig();
+    const allowedDownloads = Number(cfg.default_download_limit) || 3;
+    const expiryDays = Number(cfg.default_download_expiry_days) || 0;
+    const expiresAt = expiryDays > 0 ? new Date(Date.now() + expiryDays * 86_400_000).toISOString() : null;
     const { data: items } = await supabaseAdmin.from('order_items').select('product_id').eq('order_id', order.id);
     const productIds = [...new Set((items ?? []).map((i) => i.product_id as string))];
     let provisioned = 0;
@@ -194,7 +200,7 @@ paymentsRouter.post('/review', requireAuth, requirePermission('approve_payments'
         .in('product_id', productIds).eq('is_downloadable', true).eq('is_active', true);
       const rows = (files ?? []).map((f) => ({
         user_id: order.user_id, order_id: order.id, product_id: f.product_id,
-        product_file_id: f.id, allowed_downloads: DEFAULT_ALLOWED_DOWNLOADS, is_active: true,
+        product_file_id: f.id, allowed_downloads: allowedDownloads, expires_at: expiresAt, is_active: true,
       }));
       if (rows.length) {
         const { error: entError } = await supabaseAdmin
@@ -205,6 +211,8 @@ paymentsRouter.post('/review', requireAuth, requirePermission('approve_payments'
       }
     }
     await audit(req, 'approve_payment', 'payment_submission', submission.id, { order_id: order.id, amount: submission.transferred_amount, entitlements: provisioned });
+    const { data: placed } = await supabaseAdmin.from('orders').select('order_number').eq('id', order.id).maybeSingle();
+    await events.paymentApproved(order.user_id, { id: order.id, order_number: placed?.order_number ?? '' }, provisioned > 0);
     res.json({
       success: true,
       entitlements_created: provisioned,
@@ -232,5 +240,7 @@ paymentsRouter.post('/review', requireAuth, requirePermission('approve_payments'
     return;
   }
   await audit(req, 'reject_payment', 'payment_submission', submission.id, { order_id: order.id, reason });
+  const { data: placed } = await supabaseAdmin.from('orders').select('order_number').eq('id', order.id).maybeSingle();
+  await events.paymentRejected(order.user_id, { id: order.id, order_number: placed?.order_number ?? '' }, reason);
   res.json({ success: true, message: 'تم رفض الدفعة وإرجاع الطلب للعميل' });
 });

@@ -50,9 +50,20 @@ export function evaluateCoupon(
   return { valid: true, discount: round2(Math.max(0, Math.min(raw, subtotal))) };
 }
 
+/**
+ * PRICING MODEL (must match src/components/PricingCalculator.tsx and CartContext):
+ * the selected options ARE the price. The required "base tier" option carries
+ * the base price (e.g. "full source code + license = 450"), add-ons are summed
+ * on top of it, and `base_price` is only the "starting from" price shown on
+ * cards / the fallback when nothing is selected.
+ *
+ * Adding base_price on top of the options double-charged customers
+ * (base 450 + tier 450 + install 180 = 1,080 instead of 630).
+ */
 export function priceLine(basePrice: number, optionPrices: number[], quantity: number): number {
   const q = Math.max(1, Math.min(99, Math.floor(Number(quantity) || 1)));
-  return round2((Number(basePrice) + optionPrices.reduce((s, p) => s + Number(p), 0)) * q);
+  const unit = optionPrices.length > 0 ? optionPrices.reduce((s, p) => s + Number(p), 0) : Number(basePrice);
+  return round2(unit * q);
 }
 
 /** IDs of required options that the customer did not select. */

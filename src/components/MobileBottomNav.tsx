@@ -1,6 +1,8 @@
 import React from 'react';
-import { Home, Package, ShoppingBag, User } from 'lucide-react';
+import { Home, Package, ShoppingBag, User, Bell } from 'lucide-react';
 import { useCart } from '../context/CartContext';
+import { useAuth } from '../context/AuthContext';
+import { useNotifications } from '../context/NotificationsContext';
 
 interface MobileBottomNavProps {
   currentView: string;
@@ -9,6 +11,8 @@ interface MobileBottomNavProps {
 
 export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ currentView, onNavigate }) => {
   const { itemCount } = useCart();
+  const { isAuthenticated } = useAuth();
+  const { unread } = useNotifications();
 
   return (
     <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#070b13]/95 backdrop-blur-xl border-t border-slate-800/90 px-3 py-2 pb-safe">
@@ -53,6 +57,27 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ currentView, o
           </div>
           <span className="text-[11px]">السلة</span>
         </button>
+
+        {/* Notifications */}
+        {isAuthenticated && (
+          <button
+            onClick={() => onNavigate('notifications')}
+            aria-label={unread ? `الإشعارات (${unread} غير مقروء)` : 'الإشعارات'}
+            className={`relative flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition-colors cursor-pointer min-w-[56px] ${
+              currentView === 'notifications' ? 'text-emerald-400 font-bold' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <div className="relative">
+              <Bell className="w-5 h-5" />
+              {unread > 0 && (
+                <span className="absolute -top-1.5 -left-2 min-w-[17px] h-[17px] px-1 bg-rose-500 text-white text-[10px] font-black rounded-full flex items-center justify-center tabular-nums">
+                  {unread > 99 ? '99+' : unread}
+                </span>
+              )}
+            </div>
+            <span className="text-[11px]">الإشعارات</span>
+          </button>
+        )}
 
         {/* Portal / Downloads */}
         <button

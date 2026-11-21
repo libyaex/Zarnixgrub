@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ShieldCheck, Lock, Sparkles, CheckCircle2, ArrowLeft } from 'lucide-react';
+import { useSite } from '../context/SiteContext';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 
@@ -9,6 +10,7 @@ interface GoogleLoginPageProps {
 
 export const GoogleLoginPage: React.FC<GoogleLoginPageProps> = ({ onSuccess }) => {
   const { authError, logout } = useAuth();
+  const site = useSite();
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -61,17 +63,17 @@ export const GoogleLoginPage: React.FC<GoogleLoginPageProps> = ({ onSuccess }) =
         <div className="text-center space-y-3">
           <div className="relative inline-flex items-center justify-center w-20 h-20 rounded-full p-1 bg-gradient-to-tr from-cyan-500 via-blue-600 to-emerald-400 shadow-2xl shadow-cyan-950/80 mx-auto">
             <img
-              src="/logo.png"
-              alt="شعار ZARNIX-Group"
+              src={String(site.logo_url)}
+              alt={`شعار ${site.store_name}`}
               className="w-full h-full object-cover rounded-full"
             />
           </div>
           <div className="space-y-1">
             <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-              ZARNIX-Group
+              {String(site.store_name)}
             </h1>
             <p className="text-xs sm:text-sm text-slate-400">
-              المنصة الرقمية المتخصصة في بيع وتطوير البرمجيات والأنظمة
+              {String(site.store_tagline)}
             </p>
           </div>
         </div>
@@ -161,10 +163,10 @@ export const GoogleLoginPage: React.FC<GoogleLoginPageProps> = ({ onSuccess }) =
         {/* Footer info */}
         <div className="text-center space-y-1 text-xs text-slate-500">
           <p className="font-semibold text-slate-400">
-            ZARNIX-Group — طرابلس، ليبيا
+            {String(site.store_name)} — {String(site.address)}
           </p>
           <p>
-            هاتف: <span dir="ltr" className="text-slate-300 font-mono">091-3004448</span> | الموقع المعتمد: <span className="text-cyan-400 font-mono">ZARNIX-Group.ly</span>
+            هاتف: <span dir="ltr" className="text-slate-300 font-mono">{String(site.support_phone)}</span>
           </p>
         </div>
 

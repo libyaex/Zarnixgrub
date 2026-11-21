@@ -12,7 +12,7 @@ const root = path.resolve(import.meta.dirname, '..');
 
 // router file -> mount prefix (mirrors server.ts)
 const MOUNTS: Record<string, string> = {
-  auth: '/api/auth', payments: '/api/payments', upload: '/api/upload', downloads: '/api/downloads',
+  auth: '/api/auth', payments: '/api/payments', upload: '/api/upload', downloads: '/api/downloads', notifications: '/api/notifications',
   dashboard: '/api/admin', admin: '/api/admin', manage: '/api/admin', store: '/api',
 };
 
@@ -40,7 +40,7 @@ const routePaths = new Set([...routes].map((r) => r.split(' ')[1]));
 
 test('server.ts mounts every router file used by the contract', () => {
   const server = fs.readFileSync(path.join(root, 'server.ts'), 'utf8');
-  for (const name of ['authRouter', 'storeRouter', 'paymentsRouter', 'uploadRouter', 'downloadsRouter', 'adminRouter', 'manageRouter', 'dashboardRouter']) {
+  for (const name of ['authRouter', 'storeRouter', 'paymentsRouter', 'uploadRouter', 'downloadsRouter', 'notificationsRouter', 'adminRouter', 'manageRouter', 'dashboardRouter']) {
     assert.match(server, new RegExp(`protectRouter\\(${name}\\)`), `${name} must be wrapped with protectRouter`);
   }
 });

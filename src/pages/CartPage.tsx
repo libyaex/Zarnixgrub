@@ -117,7 +117,7 @@ export const CartPage: React.FC<CartPageProps> = ({ onCheckout, onBrowseProducts
                     <div key={opt.option_id} className="flex items-center justify-between text-xs text-slate-300">
                       <span className="truncate max-w-[340px]">· {opt.name}</span>
                       <span className="font-mono text-slate-300 tabular-nums">
-                        {opt.price.toLocaleString('ar-LY')} د.ل
+                        {opt.price.toLocaleString('en-US')} د.ل
                       </span>
                     </div>
                   ))}
@@ -128,7 +128,7 @@ export const CartPage: React.FC<CartPageProps> = ({ onCheckout, onBrowseProducts
               <div className="flex items-center justify-between pt-2 border-t border-slate-800 text-xs">
                 <span className="text-slate-400">إجمالي هذا العنصر:</span>
                 <div className="text-base font-bold text-white tabular-nums">
-                  {item.total_price.toLocaleString('ar-LY')} <span className="text-xs font-normal text-slate-400">دينار ليبي</span>
+                  {item.total_price.toLocaleString('en-US')} <span className="text-xs font-normal text-slate-400">دينار ليبي</span>
                 </div>
               </div>
             </div>
@@ -148,7 +148,7 @@ export const CartPage: React.FC<CartPageProps> = ({ onCheckout, onBrowseProducts
               <div className="flex items-center justify-between text-slate-300">
                 <span>مجموع المنتجات والخدمات:</span>
                 <span className="font-mono tabular-nums text-white">
-                  {subtotal.toLocaleString('ar-LY')} د.ل
+                  {subtotal.toLocaleString('en-US')} د.ل
                 </span>
               </div>
 
@@ -164,7 +164,7 @@ export const CartPage: React.FC<CartPageProps> = ({ onCheckout, onBrowseProducts
                     </button>
                   </div>
                   <span className="font-mono tabular-nums">
-                    - {discountAmount.toLocaleString('ar-LY')} د.ل
+                    - {discountAmount.toLocaleString('en-US')} د.ل
                   </span>
                 </div>
               )}
@@ -172,7 +172,7 @@ export const CartPage: React.FC<CartPageProps> = ({ onCheckout, onBrowseProducts
               <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
                 <span className="text-sm font-bold text-white">الإجمالي المستحق:</span>
                 <div className="text-xl sm:text-2xl font-black text-emerald-400 tabular-nums">
-                  {total.toLocaleString('ar-LY')} <span className="text-xs font-normal text-slate-300">دينار ليبي</span>
+                  {total.toLocaleString('en-US')} <span className="text-xs font-normal text-slate-300">دينار ليبي</span>
                 </div>
               </div>
             </div>

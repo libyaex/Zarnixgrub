@@ -16,6 +16,8 @@ import { supabaseAdmin } from '../lib/supabaseAdmin.ts';
 import { requireAuth } from '../lib/auth.ts';
 import { evaluateCoupon, COUPON_MESSAGES, priceLine, missingRequiredOptions, round2 } from '../lib/pricing.ts';
 import { shapeProduct, shapeOrder } from '../lib/shape.ts';
+import { loadSiteConfig } from '../lib/siteConfig.ts';
+import * as events from '../lib/events.ts';
 
 export const storeRouter = Router();
 
@@ -239,6 +241,11 @@ storeRouter.post('/orders', requireAuth, async (req: Request, res: Response) => 
 
   const shaped = shapeOrder({ ...order, order_items: inserted ?? rows, payment_submissions: [] },
     { full_name: req.user!.full_name, email: req.user!.email });
+  await events.orderCreated(order, req.user!.full_name, req.user!.id);
+  if (appliedCoupon) {
+    const { data: after } = await supabaseAdmin.from('coupons').select('used_count, max_uses').eq('code', appliedCoupon).maybeSingle();
+    if (after && after.used_count >= after.max_uses) await events.couponExhausted(appliedCoupon);
+  }
   // Order fields at the top level (what the UI reads) and under `order` (API consumers).
   res.status(201).json({ ...shaped, order: shaped });
 });
@@ -281,4 +288,14 @@ storeRouter.post('/coupons/validate', requireAuth, async (req: Request, res: Res
     return;
   }
   res.json({ code: coupon.code, discount_amount: result.discount ?? 0 });
+});
+
+/**
+ * GET /api/site — public branding / SEO / contact / feature flags that the
+ * storefront renders at runtime. Short CDN cache; the dashboard save busts the
+ * in-process cache immediately.
+ */
+storeRouter.get('/site', async (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'public, max-age=30, s-maxage=60, stale-while-revalidate=300');
+  res.json(await loadSiteConfig());
 });

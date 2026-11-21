@@ -31,7 +31,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
 
   // Customer info
   const [customerName, setCustomerName] = useState(user?.full_name || '');
-  const [customerPhone, setCustomerPhone] = useState(user?.phone || '0912345678');
+  const [customerPhone, setCustomerPhone] = useState(user?.phone || '');
   const [customerNotes, setCustomerNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -245,7 +245,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
                   <div className="flex items-center justify-between font-bold text-white">
                     <span className="truncate max-w-[220px]">{item.product.name}</span>
                     <span className="font-mono tabular-nums text-slate-200 whitespace-nowrap">
-                      {item.total_price.toLocaleString('ar-LY')} د.ل
+                      {item.total_price.toLocaleString('en-US')} د.ل
                     </span>
                   </div>
 
@@ -253,7 +253,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
                     {item.selected_options.map((opt) => (
                       <div key={opt.option_id} className="flex justify-between">
                         <span>· {opt.name}</span>
-                        <span className="font-mono">{opt.price.toLocaleString('ar-LY')} د.ل</span>
+                        <span className="font-mono">{opt.price.toLocaleString('en-US')} د.ل</span>
                       </div>
                     ))}
                   </div>
@@ -264,20 +264,20 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
             <div className="space-y-2 pt-3 border-t border-slate-800 text-xs">
               <div className="flex items-center justify-between text-slate-300">
                 <span>المجموع الفرعي:</span>
-                <span className="font-mono tabular-nums">{activeSubtotal.toLocaleString('ar-LY')} د.ل</span>
+                <span className="font-mono tabular-nums">{activeSubtotal.toLocaleString('en-US')} د.ل</span>
               </div>
 
               {activeDiscount > 0 && (
                 <div className="flex items-center justify-between text-emerald-400">
                   <span>الخصم المطبق:</span>
-                  <span className="font-mono tabular-nums">- {activeDiscount.toLocaleString('ar-LY')} د.ل</span>
+                  <span className="font-mono tabular-nums">- {activeDiscount.toLocaleString('en-US')} د.ل</span>
                 </div>
               )}
 
               <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
                 <span className="text-sm sm:text-base font-bold text-white">المبلغ النهائي المستحق:</span>
                 <div className="text-xl sm:text-2xl font-black text-emerald-400 tabular-nums">
-                  {activeTotal.toLocaleString('ar-LY')} <span className="text-xs font-normal text-slate-300">د.ل</span>
+                  {activeTotal.toLocaleString('en-US')} <span className="text-xs font-normal text-slate-300">د.ل</span>
                 </div>
               </div>
             </div>

@@ -27,8 +27,12 @@ test('inactive / not started / expired / exhausted / below minimum', () => {
 test('numeric strings from Postgres NUMERIC are handled', () => {
   assert.deepEqual(evaluateCoupon({ ...base, discount_value: '12.50', minimum_order: '50.00' }, 100, now), { valid: true, discount: 12.5 });
 });
-test('line pricing, rounding and quantity clamp', () => {
-  assert.equal(priceLine(100, [25, 10.5], 2), 271);
+test('line pricing: options ARE the price; base_price is only the fallback (regression: was double-charged)', () => {
+  // The reported case: base 450, base tier 450, installation 180 -> 630 (was 1,080).
+  assert.equal(priceLine(450, [450, 180], 1), 630);
+  assert.equal(priceLine(450, [450], 1), 450);
+  assert.equal(priceLine(450, [], 1), 450, 'nothing selected -> starting price');
+  assert.equal(priceLine(100, [25, 10.5], 2), 71);
   assert.equal(priceLine(10, [], 0), 10);
   assert.equal(priceLine(10, [], 1000), 990);
   assert.equal(round2(0.1 + 0.2), 0.3);

@@ -147,7 +147,7 @@ export const PricingCalculator: React.FC<PricingCalculatorProps> = ({
                     {idx + 1}. {opt.name}
                   </span>
                   <span className="text-xs sm:text-sm font-extrabold text-white tabular-nums whitespace-nowrap">
-                    {opt.price.toLocaleString('ar-LY')} <span className="text-xs font-normal text-emerald-400">د.ل</span>
+                    {opt.price.toLocaleString('en-US')} <span className="text-xs font-normal text-emerald-400">د.ل</span>
                   </span>
                 </div>
                 {opt.description && (
@@ -177,7 +177,7 @@ export const PricingCalculator: React.FC<PricingCalculatorProps> = ({
             <div key={sel.option_id} className="flex items-center justify-between text-xs sm:text-sm text-slate-300">
               <span className="truncate max-w-[260px] sm:max-w-[320px]">· {sel.name}</span>
               <span className="font-mono tabular-nums text-slate-200">
-                {sel.price.toLocaleString('ar-LY')} د.ل
+                {sel.price.toLocaleString('en-US')} د.ل
               </span>
             </div>
           ))}
@@ -186,7 +186,7 @@ export const PricingCalculator: React.FC<PricingCalculatorProps> = ({
         <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
           <span className="text-sm sm:text-base font-bold text-white">الإجمالي النهائي بالدينار الليبي:</span>
           <div className="text-xl sm:text-2xl font-black text-emerald-400 tabular-nums">
-            {calculatedTotal.toLocaleString('ar-LY')} <span className="text-xs sm:text-sm font-normal text-slate-300">دينار ليبي</span>
+            {calculatedTotal.toLocaleString('en-US')} <span className="text-xs sm:text-sm font-normal text-slate-300">دينار ليبي</span>
           </div>
         </div>
       </div>

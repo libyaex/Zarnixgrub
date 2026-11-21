@@ -74,7 +74,7 @@ export const AuditDetailsModal: React.FC<AuditDetailsModalProps> = ({
           <div>
             <span className="text-slate-400 text-[10px] block">التوقيت الدقيق:</span>
             <span className="font-mono text-slate-200 text-xs block">
-              {new Date(log.created_at).toLocaleString('ar-LY')}
+              {new Date(log.created_at).toLocaleString('en-US')}
             </span>
           </div>
 

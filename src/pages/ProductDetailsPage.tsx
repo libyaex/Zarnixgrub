@@ -313,7 +313,7 @@ export const ProductDetailsPage: React.FC<ProductDetailsPageProps> = ({
           className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-sm shadow-xl shadow-emerald-950/50 flex items-center justify-between border border-emerald-400/30 cursor-pointer"
         >
           <span>تخصيص الخيارات والشراء الآن</span>
-          <span className="font-mono text-emerald-100 tabular-nums">{product.base_price.toLocaleString('ar-LY')} د.ل</span>
+          <span className="font-mono text-emerald-100 tabular-nums">{product.base_price.toLocaleString('en-US')} د.ل</span>
         </button>
       </div>
 

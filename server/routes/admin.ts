@@ -13,6 +13,8 @@
 import { Router, type Request, type Response } from 'express';
 import { supabaseAdmin } from '../lib/supabaseAdmin.ts';
 import { requirePermission } from '../lib/auth.ts';
+import { loadSiteConfig, invalidateSiteConfig } from '../lib/siteConfig.ts';
+import * as events from '../lib/events.ts';
 
 export const adminRouter = Router();
 
@@ -50,21 +52,10 @@ adminRouter.get('/audit', requirePermission('view_audit_logs'), async (_req: Req
   res.json((data ?? []).map((r) => ({ ...r, admin_name: names.get(r.admin_id) ?? '—' })));
 });
 
-/** GET /api/admin/settings — key/value rows returned as a flat map. */
+/** GET /api/admin/settings — every known setting (stored value or schema default). */
 adminRouter.get('/settings', requirePermission('manage_settings'), async (_req: Request, res: Response) => {
-  const { data, error } = await supabaseAdmin
-    .from('site_settings')
-    .select('setting_key, setting_value, updated_at')
-    .order('setting_key');
-  if (error) {
-    res.status(500).json({ error: 'تعذر تحميل الإعدادات' });
-    return;
-  }
-  const map: Record<string, unknown> = {};
-  for (const row of data ?? []) {
-    map[row.setting_key] = (row.setting_value as { value?: unknown })?.value ?? row.setting_value;
-  }
-  res.json(map);
+  invalidateSiteConfig();
+  res.json(await loadSiteConfig());
 });
 
 adminRouter.put('/services/:id', requirePermission('manage_services'), async (req: Request, res: Response) => {
@@ -94,6 +85,9 @@ adminRouter.put('/services/:id', requirePermission('manage_services'), async (re
     entity_id: req.params.id,
     details: updates,
   });
+  if (typeof body.status === 'string' && statuses.includes(body.status)) {
+    await events.serviceUpdated(data.user_id ?? null, data.service_name ?? 'الخدمة', body.status);
+  }
   res.json({ service: data });
 });
 
