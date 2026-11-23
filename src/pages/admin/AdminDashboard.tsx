@@ -24,6 +24,9 @@ import { apiFetch, apiJson, errorMessage } from '../../lib/api';
 import { uploadViaSignedUrl, uploadPublicImage, dataUrlToFile } from '../../lib/uploads';
 import { SettingsManager } from '../../components/admin/SettingsManager';
 import { NotificationsAdmin } from '../../components/admin/NotificationsAdmin';
+import { PaymentAccountModal } from '../../components/admin/PaymentAccountModal';
+import { PaymentMethodBadge } from '../../components/PaymentMethodUI';
+import { formatIban, methodMeta } from '../../shared/paymentMethods';
 import { MonthlyRevenueChart } from '../../components/admin/MonthlyRevenueChart';
 import { NotificationBell } from '../../components/notifications/NotificationUI';
 import { useSite } from '../../context/SiteContext';
@@ -140,7 +143,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ initialTab, onBa
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [roleModalOpen, setRoleModalOpen] = useState(false);
   const [editingRole, setEditingRole] = useState<RoleItem | null>(null);
-  const [newBankModal, setNewBankModal] = useState(false);
+  const [bankModal, setBankModal] = useState<PaymentAccount | 'new' | null>(null);
   const [newCouponModal, setNewCouponModal] = useState(false);
   const [newCategoryModal, setNewCategoryModal] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
@@ -1388,8 +1391,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ initialTab, onBa
                             <span className="font-bold text-white">{sub.sender_name}</span>
                           </div>
                           <div>
-                            <span className="text-slate-400 block">المصرف المحول منه:</span>
-                            <span className="font-bold text-white">{sub.sender_bank || 'مصرف محلي'}</span>
+                            <span className="text-slate-400 block">وسيلة الدفع المختارة:</span>
+                            <span className="font-bold text-emerald-300">{sub.payment_method ? methodMeta(sub.payment_method).label : 'غير محددة'}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 block">المصرف/التطبيق المحوَّل منه:</span>
+                            <span className="font-bold text-white">{sub.sender_bank || 'غير محدد'}</span>
                           </div>
                           <div>
                             <span className="text-slate-400 block">رقم الحوالة المرجعي:</span>
@@ -1699,68 +1706,85 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ initialTab, onBa
             <div className="space-y-6 animate-fade-in">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                  <h2 className="text-xl sm:text-2xl font-black text-white">الحسابات المصرفية الرسمية (ليبيا)</h2>
+                  <h2 className="text-xl sm:text-2xl font-black text-white">وسائل الدفع</h2>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    إدارة بيانات المصارف لاستلام الحوالات بالدينار الليبي
+                    ون باي (برقم الحساب) · لي باي (بالآيبان) · التحويل المصرفي. يختار العميل الوسيلة أولاً ثم تظهر له بياناتها فقط.
                   </p>
                 </div>
-
                 <button
-                  onClick={() => setNewBankModal(true)}
+                  onClick={() => setBankModal('new')}
                   className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-lg shadow-emerald-950/40 cursor-pointer"
                 >
                   <PlusCircle className="w-4 h-4" />
-                  <span>إضافة حساب مصرفي</span>
+                  <span>إضافة وسيلة دفع</span>
                 </button>
               </div>
 
+              {bankAccounts.length === 0 && (
+                <p className="text-sm text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-2xl p-5">
+                  لا توجد وسائل دفع. العملاء لن يستطيعون إتمام الدفع قبل إضافة وسيلة واحدة على الأقل.
+                </p>
+              )}
+
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {bankAccounts.map((b) => (
-                  <div key={b.id} className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-3 relative">
-                    <div className="flex items-center justify-between">
-                      <h3 className="font-bold text-white text-base">{b.bank_name}</h3>
-                      {b.is_default && (
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800">
-                          الافتراضي
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="text-xs space-y-1.5 text-slate-300">
-                      <div>المستفيد: <span className="font-bold text-white">{b.account_holder}</span></div>
-                      <div>رقم الحساب: <span className="font-mono text-cyan-400 font-bold">{b.account_number}</span></div>
-                      {b.iban && <div>الآيبان: <span className="font-mono text-slate-400">{b.iban}</span></div>}
-                      {b.instructions && (
-                        <p className="text-[11px] text-slate-400 bg-slate-950 p-2 rounded-lg border border-slate-800/80">
-                          {b.instructions}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="flex items-center justify-end pt-2 border-t border-slate-800">
-                      <button
-                        onClick={async () => {
-                          if (confirm(`هل أنت متأكد من حذف الحساب في ${b.bank_name}؟`)) {
+                {[...bankAccounts].sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0)).map((b) => {
+                  const meta = methodMeta(b.method_type);
+                  return (
+                    <div key={b.id} className={`p-4 rounded-2xl border space-y-3 ${b.is_active ? 'bg-slate-900 border-slate-800' : 'bg-slate-900/40 border-slate-800/60 opacity-70'}`}>
+                      <div className="flex items-start gap-3">
+                        <PaymentMethodBadge type={b.method_type} logoUrl={b.logo_url} size={44} label={meta.label} />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-bold text-white truncate">
+                            {meta.type === 'bank_transfer' || meta.type === 'other' ? b.bank_name : `${meta.label} · ${meta.latin}`}
+                          </p>
+                          <div className="flex flex-wrap gap-1.5 mt-1">
+                            <span className="text-[10px] px-2 py-0.5 rounded-md bg-slate-800 text-slate-300">{meta.label}</span>
+                            {b.is_default && <span className="text-[10px] px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300">افتراضي</span>}
+                            {!b.is_active && <span className="text-[10px] px-2 py-0.5 rounded-md bg-rose-500/15 text-rose-300">متوقف</span>}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-xs space-y-1.5 border-t border-slate-800 pt-3">
+                        <p><span className="text-slate-500">المستفيد: </span><span className="text-slate-200 font-bold">{b.account_holder}</span></p>
+                        {b.account_number && <p><span className="text-slate-500">رقم الحساب: </span><span className="font-mono text-white" dir="ltr">{b.account_number}</span></p>}
+                        {b.iban && <p><span className="text-slate-500">IBAN: </span><span className="font-mono text-white break-all" dir="ltr">{formatIban(b.iban)}</span></p>}
+                      </div>
+                      <div className="flex gap-2 pt-1">
+                        <button onClick={() => setBankModal(b)} className="flex-1 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold cursor-pointer">تعديل</button>
+                        <button
+                          onClick={async () => {
+                            try {
+                              await apiJson(`/api/admin/banks/${b.id}`, { method: 'PUT', body: { is_active: !b.is_active } });
+                              showToast(b.is_active ? 'تم إيقاف الوسيلة (لن تظهر للعملاء)' : 'تم تفعيل الوسيلة');
+                            } catch (err) { showToast(errorMessage(err, 'تعذر التحديث')); }
+                            loadAdminData();
+                          }}
+                          className="px-3 py-2 rounded-lg border border-slate-700 text-slate-300 hover:text-white text-xs cursor-pointer"
+                        >
+                          {b.is_active ? 'إيقاف' : 'تفعيل'}
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (!confirm(`حذف وسيلة الدفع «${b.bank_name}»؟`)) return;
                             try {
                               await apiJson(`/api/admin/banks/${b.id}`, { method: 'DELETE' });
-                              showToast('تم حذف الحساب المصرفي');
-                            } catch (err) {
-                              showToast(errorMessage(err, 'تعذر حذف الحساب'));
-                            }
+                              showToast('تم حذف وسيلة الدفع');
+                            } catch (err) { showToast(errorMessage(err, 'تعذر الحذف')); }
                             loadAdminData();
-                          }
-                        }}
-                        className="text-xs text-rose-400 hover:text-rose-300 cursor-pointer flex items-center gap-1"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        <span>حذف الحساب</span>
-                      </button>
+                          }}
+                          className="px-3 py-2 rounded-lg border border-rose-900/60 text-rose-400 hover:bg-rose-950/40 text-xs cursor-pointer"
+                          aria-label="حذف"
+                        >
+                          حذف
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
+
 
           {/* ================================================================= */}
           {/* 12. COUPONS TAB */}
@@ -2005,58 +2029,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ initialTab, onBa
       )}
 
       {/* 4. NEW BANK MODAL */}
-      {newBankModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md space-y-4 text-xs">
-            <h3 className="text-sm font-bold text-white">إضافة حساب مصرفي ليبي جديد</h3>
-            <form onSubmit={async (e) => {
-              e.preventDefault();
-              const form = e.target as any;
-              try {
-                await apiJson('/api/admin/banks', {
-                  method: 'POST',
-                  body: {
-                  bank_name: form.bank_name.value,
-                  account_holder: form.account_holder.value,
-                  account_number: form.account_number.value,
-                  iban: form.iban.value,
-                  instructions: form.instructions.value
-                }
-                });
-                setNewBankModal(false);
-                showToast('تمت إضافة الحساب المصرفي بنجاح');
-                loadAdminData();
-              } catch (err) {
-                showToast(errorMessage(err, 'تعذر إضافة الحساب'));
-              }
-            }} className="space-y-3">
-              <div>
-                <label className="text-slate-300 block mb-1">اسم المصرف</label>
-                <input name="bank_name" required placeholder="مثلاً: مصرف الأمان" className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white" />
-              </div>
-              <div>
-                <label className="text-slate-300 block mb-1">اسم صاحب الحساب</label>
-                <input name="account_holder" required placeholder="نزار الهواري" className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white" />
-              </div>
-              <div>
-                <label className="text-slate-300 block mb-1">رقم الحساب</label>
-                <input name="account_number" required placeholder="102-000000-001" className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono" />
-              </div>
-              <div>
-                <label className="text-slate-300 block mb-1">رقم الآيبان (IBAN)</label>
-                <input name="iban" placeholder="LY..." className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono" />
-              </div>
-              <div>
-                <label className="text-slate-300 block mb-1">تعليمات التحويل للعميل</label>
-                <textarea name="instructions" rows={2} placeholder="يرجى كتابة رقم الطلب في الملاحظات..." className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white" />
-              </div>
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button type="button" onClick={() => setNewBankModal(false)} className="px-3 py-2 text-slate-400">إلغاء</button>
-                <button type="submit" className="px-4 py-2 bg-indigo-600 rounded-xl text-white font-bold">حفظ الحساب</button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {bankModal && (
+        <PaymentAccountModal
+          account={bankModal === 'new' ? null : bankModal}
+          onClose={() => setBankModal(null)}
+          onSaved={() => { setBankModal(null); loadAdminData(); }}
+          onToast={showToast}
+        />
       )}
 
       {/* 5. NEW COUPON MODAL */}

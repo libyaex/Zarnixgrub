@@ -443,3 +443,73 @@ test('customers can disable payment notifications from the dashboard switches', 
   assert.equal(db.T('notifications').length, 0);
   invalidateSiteConfig();
 });
+
+// ------------------------------------------------------------------ payment methods (OnePay / LYPay / bank)
+let manage: Routes;
+before(async () => { manage = await loadRoutes('../../server/routes/manage.ts', 'manageRouter'); });
+
+const IBAN = 'LY83002048000020100120361';
+const manager = () => staff(['manage_banks'], 'payment_manager');
+
+test('payment methods: OnePay needs an account number, LYPay a valid IBAN; the IBAN is stored normalised', async () => {
+  resetDb();
+  const noNumber = await call(manage, 'POST', '/banks', { user: manager(), body: { method_type: 'onepay', account_holder: 'نزار' } });
+  assert.equal(noNumber.statusCode, 400);
+  const badIban = await call(manage, 'POST', '/banks', { user: manager(), body: { method_type: 'lypay', account_holder: 'نزار', iban: 'LY00123' } });
+  assert.equal(badIban.statusCode, 400);
+  assert.equal(db.T('payment_accounts').length, 0);
+
+  const one = await call(manage, 'POST', '/banks', { user: manager(), body: { method_type: 'onepay', account_holder: 'نزار', account_number: '1020304055' } });
+  assert.equal(one.statusCode, 201);
+  const ly = await call(manage, 'POST', '/banks', { user: manager(), body: { method_type: 'lypay', account_holder: 'نزار', iban: 'ly83 0020 4800 0020 1001 2036 1', is_default: true } });
+  assert.equal(ly.statusCode, 201);
+  assert.equal(db.T('payment_accounts').find((a) => a.method_type === 'lypay')!.iban, IBAN);
+
+  const denied = await call(manage, 'POST', '/banks', { user: staff(['manage_products'], 'product_manager'), body: { method_type: 'onepay', account_holder: 'x', account_number: '1' } });
+  assert.equal(denied.statusCode, 403);
+});
+
+test('payment methods: only one default; editing validates only what changed', async () => {
+  resetDb();
+  const a = await call(manage, 'POST', '/banks', { user: manager(), body: { method_type: 'onepay', account_holder: 'A', account_number: '1', is_default: true } });
+  const b = await call(manage, 'POST', '/banks', { user: manager(), body: { method_type: 'lypay', account_holder: 'B', iban: IBAN } });
+  await call(manage, 'PUT', '/banks/:id', { user: manager(), params: { id: b.body.bank.id }, body: { is_default: true } });
+  const defaults = db.T('payment_accounts').filter((x) => x.is_default);
+  assert.equal(defaults.length, 1);
+  assert.equal(defaults[0].id, b.body.bank.id);
+  const bad = await call(manage, 'PUT', '/banks/:id', { user: manager(), params: { id: a.body.bank.id }, body: { iban: 'LY99' } });
+  assert.equal(bad.statusCode, 400);
+});
+
+test('proof submission records WHICH method the customer paid with, and refuses unavailable ones', async () => {
+  resetDb({
+    ...paymentSeed(),
+    profiles: [{ id: CUSTOMER, role: 'customer', status: 'active', full_name: 'Ali' }],
+    payment_accounts: [
+      { id: 'cccccccc-0000-4000-8000-000000000001', method_type: 'lypay', bank_name: 'LYPay', account_holder: 'N', iban: IBAN, is_active: true },
+      { id: 'cccccccc-0000-4000-8000-000000000002', method_type: 'onepay', bank_name: 'OnePay', account_holder: 'N', account_number: '1', is_active: false },
+    ],
+  });
+  db.objects.add(`payment_receipts/${CUSTOMER}/receipt.png`);
+  const inactive = await call(payments, 'POST', '/submit', { user: user(), body: proof({ payment_account_id: 'cccccccc-0000-4000-8000-000000000002' }) });
+  assert.equal(inactive.statusCode, 400);
+  assert.equal(db.T('orders')[0].payment_status, 'unsubmitted', 'a refused attempt must leave the order untouched');
+  const unknown = await call(payments, 'POST', '/submit', { user: user(), body: proof({ payment_account_id: 'cccccccc-0000-4000-8000-0000000000ff' }) });
+  assert.equal(unknown.statusCode, 400);
+
+  const ok = await call(payments, 'POST', '/submit', { user: user(), body: proof({ payment_account_id: 'cccccccc-0000-4000-8000-000000000001' }) });
+  assert.equal(ok.statusCode, 201);
+  assert.equal(db.T('payment_submissions')[0].payment_method, 'lypay');
+  assert.equal(db.T('payment_submissions')[0].payment_account_id, 'cccccccc-0000-4000-8000-000000000001');
+});
+
+test('storefront lists ALL products regardless of price or count (no 500-row cap)', async () => {
+  const many = Array.from({ length: 1234 }, (_, i) => ({
+    id: `p${i}`, name: `P${i}`, slug: `p${i}`, base_price: i === 0 ? '1000000' : '100', status: 'published', created_at: new Date(2026, 0, 1, 0, 0, i).toISOString(),
+  }));
+  resetDb({ products: many });
+  const res = await call(store, 'GET', '/products', {});
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.length, 1234);
+  assert.ok(res.body.some((p: any) => p.base_price === 1000000), 'a million-dinar product is returned');
+});

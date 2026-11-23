@@ -85,6 +85,7 @@ export const SETTINGS_SCHEMA: readonly SettingField[] = [
   f('default_download_limit', 'number', 'store', 'عدد محاولات التحميل الافتراضي', 3, { min: 1, max: 100 }),
   f('default_download_expiry_days', 'number', 'store', 'مدة صلاحية رخصة التحميل (أيام، 0 = بلا انتهاء)', 0, { min: 0, max: 3650 }),
   f('bank_transfer_note', 'text', 'store', 'ملاحظة تظهر عند الدفع بالتحويل', '', { max: 600 }),
+  f('payment_review_eta', 'string', 'store', 'مدة مراجعة الدفع التي تظهر للعميل', 'عادةً خلال ساعات العمل', { max: 120, help: 'مثال: خلال ساعتين في أوقات العمل (9 ص – 5 م)' }),
   f('require_login_to_browse', 'boolean', 'store', 'اشتراط تسجيل الدخول لتصفح المتجر', true, { help: 'عند الإيقاف يصبح المتجر عاماً ويمكن لمحركات البحث فهرسة المنتجات' }),
   f('maintenance_mode', 'boolean', 'store', 'وضع الصيانة', false, { help: 'يعرض صفحة صيانة للعملاء ويبقى الدخول مفتوحاً للإدارة' }),
   f('maintenance_message', 'text', 'store', 'رسالة الصيانة', 'المنصة تحت الصيانة حالياً، سنعود قريباً.', { max: 300 }),

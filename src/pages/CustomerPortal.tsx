@@ -6,6 +6,8 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { Order, DownloadEntitlement, ServiceTask } from '../types';
 import { apiFetch, apiJson, errorMessage } from '../lib/api';
+import { BankTransferModal } from '../components/BankTransferModal';
+import { OrderStatusTracker } from '../components/OrderStatusTracker';
 
 interface CustomerPortalProps {
   initialTab?: string;
@@ -29,6 +31,7 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
 
   // Download state
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [payingOrder, setPayingOrder] = useState<Order | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
   const loadData = async () => {
@@ -356,19 +359,14 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
                   </span>
                 </div>
 
-                <div>
-                  <span className="text-slate-400 block text-[11px]">حالة الدفع</span>
-                  <span className={`px-2.5 py-0.5 rounded text-[11px] font-semibold ${
-                    ord.payment_status === 'paid'
-                      ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
-                      : ord.payment_status === 'under_review'
-                      ? 'bg-amber-950 text-amber-400 border border-amber-800'
-                      : 'bg-rose-950 text-rose-400 border border-rose-800'
-                  }`}>
-                    {ord.payment_status === 'paid' ? 'مدفوع' : ord.payment_status === 'under_review' ? 'قيد المراجعة' : 'بانتظار الإثبات'}
-                  </span>
-                </div>
               </div>
+
+              {/* Where is this order, and what (if anything) must I do? */}
+              <OrderStatusTracker
+                order={ord}
+                compact
+                onAction={(action) => (action === 'open_downloads' ? setActiveTab('downloads') : setPayingOrder(ord))}
+              />
 
               {/* Items in order */}
               <div className="space-y-2">
@@ -386,7 +384,17 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
               </div>
             </div>
           ))}
+          {orders.length === 0 && <p className="text-center text-sm text-slate-500 py-10">لا توجد طلبات بعد.</p>}
         </div>
+      )}
+
+      {payingOrder && (
+        <BankTransferModal
+          order={payingOrder}
+          isOpen
+          onClose={() => setPayingOrder(null)}
+          onSubmitted={() => { setPayingOrder(null); void loadData(); }}
+        />
       )}
 
       {/* Tab 4: Licenses (Section 11) */}

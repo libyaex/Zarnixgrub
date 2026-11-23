@@ -236,11 +236,16 @@ export interface Order {
 
 export interface PaymentAccount {
   id: string;
+  /** 'onepay' | 'lypay' | 'bank_transfer' | 'other' (see src/shared/paymentMethods.ts) */
+  method_type?: string;
   bank_name: string;
   account_holder: string;
-  account_number: string;
-  iban?: string;
-  instructions?: string;
+  /** Empty for LYPay (identified by IBAN only). */
+  account_number?: string | null;
+  iban?: string | null;
+  instructions?: string | null;
+  logo_url?: string | null;
+  sort_order?: number;
   is_active: boolean;
   is_default: boolean;
 }
@@ -260,6 +265,9 @@ export interface PaymentSubmission {
   reviewer_name?: string;
   reviewed_at?: string;
   rejection_reason?: string;
+  /** Method the customer paid with: 'onepay' | 'lypay' | 'bank_transfer' | 'other'. */
+  payment_method?: string | null;
+  payment_account_id?: string | null;
   created_at: string;
 }
 

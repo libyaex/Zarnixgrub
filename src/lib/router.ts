@@ -12,7 +12,7 @@ export interface Route {
   params: { slug?: string; tab?: string; filter?: string; next?: string; [k: string]: string | undefined };
 }
 
-const PORTAL_TABS = ['downloads', 'orders', 'services'];
+const PORTAL_TABS = ['downloads', 'orders', 'services', 'licenses', 'profile'];
 const POLICY_TABS = ['terms', 'privacy', 'refunds', 'digital_goods', 'licensing', 'support'];
 
 export function parsePath(pathname: string, search = ''): Route {

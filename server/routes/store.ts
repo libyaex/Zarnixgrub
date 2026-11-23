@@ -15,7 +15,7 @@ import { Router, type Request, type Response } from 'express';
 import { supabaseAdmin } from '../lib/supabaseAdmin.ts';
 import { requireAuth } from '../lib/auth.ts';
 import { evaluateCoupon, COUPON_MESSAGES, priceLine, missingRequiredOptions, round2 } from '../lib/pricing.ts';
-import { shapeProduct, shapeOrder } from '../lib/shape.ts';
+import { shapeProduct, shapeOrder, fetchAll } from '../lib/shape.ts';
 import { loadSiteConfig } from '../lib/siteConfig.ts';
 import * as events from '../lib/events.ts';
 
@@ -23,17 +23,19 @@ export const storeRouter = Router();
 
 /** GET /api/products — public: published products only. */
 storeRouter.get('/products', async (_req: Request, res: Response) => {
-  const { data, error } = await supabaseAdmin
-    .from('products')
-    .select('*, product_options(*), categories(name)')
-    .eq('status', 'published')
-    .order('created_at', { ascending: false })
-    .range(0, 499);
-  if (error) {
+  try {
+    // Every published product (paged internally; PostgREST caps one response at 1000 rows).
+    const rows = await fetchAll<any>((from, to) => supabaseAdmin
+      .from('products')
+      .select('*, product_options(*), categories(name)')
+      .eq('status', 'published')
+      .order('created_at', { ascending: false })
+      .range(from, to), 500, 20);
+    res.json(rows.map((p) => shapeProduct(p)));
+  } catch (error) {
+    console.error('[store] products failed:', (error as Error).message);
     res.status(500).json({ error: 'تعذر تحميل المنتجات حالياً' });
-    return;
   }
-  res.json((data ?? []).map((p) => shapeProduct(p)));
 });
 
 /** GET /api/products/:slug — public: single published product. */
@@ -93,13 +95,22 @@ storeRouter.get('/services', requireAuth, async (req: Request, res: Response) =>
   })));
 });
 
-/** GET /api/banks — public: active bank accounts (payment_accounts) for the transfer page. */
-storeRouter.get('/banks', async (_req: Request, res: Response) => {
-  const { data, error } = await supabaseAdmin
+/** GET /api/banks — signed-in customers: active payment methods (OnePay / LYPay / bank accounts). */
+storeRouter.get('/banks', requireAuth, async (_req: Request, res: Response) => {
+  let { data, error } = await supabaseAdmin
     .from('payment_accounts')
-    .select('id, bank_name, account_holder, account_number, iban, instructions')
+    .select('id, method_type, bank_name, account_holder, account_number, iban, instructions, logo_url, sort_order, is_default')
     .eq('is_active', true)
+    .order('sort_order', { ascending: true })
     .order('is_default', { ascending: false });
+  if (error && /method_type|logo_url|sort_order/.test(error.message)) {
+    // phase5 migration not applied yet
+    ({ data, error } = (await supabaseAdmin
+      .from('payment_accounts')
+      .select('id, bank_name, account_holder, account_number, iban, instructions, is_default')
+      .eq('is_active', true)
+      .order('is_default', { ascending: false })) as any);
+  }
   if (error) {
     res.status(500).json({ error: 'تعذر تحميل الحسابات البنكية' });
     return;

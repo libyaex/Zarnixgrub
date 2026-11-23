@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Search, SlidersHorizontal, ArrowUpDown, Filter } from 'lucide-react';
 import { ProductCard } from '../components/ProductCard';
+import { passesPriceFilter, priceBounds, sliderToMax } from '../lib/priceFilter';
 import { Product, Category } from '../types';
 import { apiFetch } from '../lib/api';
 
@@ -20,7 +21,8 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ initialFilter, onVie
   const [selectedCategory, setSelectedCategory] = useState<string>(initialFilter?.category || 'all');
   const [selectedType, setSelectedType] = useState<string>('all');
   const [sortOrder, setSortOrder] = useState<string>(initialFilter?.filter === 'featured' ? 'featured' : 'latest');
-  const [maxPrice, setMaxPrice] = useState<number>(5000);
+  // null = no limit. The old fixed 5,000 cap silently hid every pricier product.
+  const [maxPrice, setMaxPrice] = useState<number | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -36,6 +38,9 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ initialFilter, onVie
   }, []);
 
   // Filter products
+  // The slider range follows the real catalogue (most expensive product), never a fixed cap.
+  const bounds = priceBounds(products.map((p) => p.base_price));
+
   const filteredProducts = products.filter(p => {
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -52,7 +57,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ initialFilter, onVie
       if (p.product_type !== selectedType) return false;
     }
 
-    if (p.base_price > maxPrice) return false;
+    if (!passesPriceFilter(p.base_price, maxPrice)) return false;
 
     return true;
   });
@@ -146,14 +151,15 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ initialFilter, onVie
           {/* Price Range Slider */}
           <div className="flex items-center gap-3 shrink-0 text-slate-400">
             <span>الحد الأقصى للسعر:</span>
-            <span className="text-white font-mono font-bold">{maxPrice.toLocaleString('en-US')} د.ل</span>
+            <span className="text-white font-mono font-bold">{maxPrice === null ? 'بدون حد' : `${maxPrice.toLocaleString('en-US')} د.ل`}</span>
             <input
               type="range"
-              min="500"
-              max="5000"
-              step="100"
-              value={maxPrice}
-              onChange={(e) => setMaxPrice(Number(e.target.value))}
+              min={0}
+              max={bounds.ceiling}
+              step={bounds.step}
+              value={maxPrice ?? bounds.ceiling}
+              aria-label="الحد الأقصى للسعر"
+              onChange={(e) => setMaxPrice(sliderToMax(Number(e.target.value), bounds.ceiling))}
               className="accent-emerald-500 cursor-pointer w-28"
             />
           </div>
@@ -165,12 +171,12 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ initialFilter, onVie
       {/* Results Count */}
       <div className="flex items-center justify-between text-xs sm:text-sm text-slate-400">
         <span>عرض {filteredProducts.length} من أصل {products.length} مشروع رقمي</span>
-        {(selectedCategory !== 'all' || searchQuery || maxPrice < 5000) && (
+        {(selectedCategory !== 'all' || searchQuery || maxPrice !== null) && (
           <button
             onClick={() => {
               setSelectedCategory('all');
               setSearchQuery('');
-              setMaxPrice(5000);
+              setMaxPrice(null);
             }}
             className="text-emerald-400 hover:underline cursor-pointer font-semibold"
           >
@@ -199,7 +205,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ initialFilter, onVie
             onClick={() => {
               setSelectedCategory('all');
               setSearchQuery('');
-              setMaxPrice(5000);
+              setMaxPrice(null);
             }}
             className="px-5 py-2.5 rounded-xl bg-slate-800 text-white text-xs sm:text-sm font-semibold hover:bg-slate-700 cursor-pointer"
           >

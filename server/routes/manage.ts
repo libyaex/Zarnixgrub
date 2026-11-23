@@ -19,6 +19,8 @@
 import { Router, type Request, type Response } from 'express';
 import { supabaseAdmin } from '../lib/supabaseAdmin.ts';
 import { requirePermission } from '../lib/auth.ts';
+import { parsePaymentAccount } from '../../src/shared/paymentMethods.ts';
+import { isUuid } from '../lib/validators.ts';
 import { validateSettingsUpdate } from '../../src/shared/siteSchema.ts';
 import { invalidateSiteConfig } from '../lib/siteConfig.ts';
 
@@ -155,47 +157,54 @@ manageRouter.delete('/coupons/:id', requirePermission('manage_coupons'), async (
 // ---------------------------------------------------------------------------
 // BANK ACCOUNTS (production schema: payment_accounts with account_holder)
 // ---------------------------------------------------------------------------
+/** Only one account may be the default; setting it clears the flag on the others. */
+async function clearOtherDefaults(exceptId: string): Promise<void> {
+  await supabaseAdmin.from('payment_accounts').update({ is_default: false }).neq('id', exceptId).eq('is_default', true);
+}
+
 manageRouter.post('/banks', requirePermission('manage_banks'), async (req: Request, res: Response) => {
-  const body = req.body ?? {};
-  const payload = {
-    bank_name: str(body.bank_name, 120),
-    account_holder: str(body.account_holder ?? body.account_name, 120),
-    account_number: str(body.account_number, 64),
-    iban: str(body.iban, 64),
-    instructions: str(body.instructions, 1000),
-    is_active: bool(body.is_active, true),
-    is_default: bool(body.is_default),
-  };
-  if (!payload.bank_name || !payload.account_holder || !payload.account_number) {
-    res.status(400).json({ error: 'اسم البنك واسم صاحب الحساب والرقم مطلوبة' });
+  const parsed = parsePaymentAccount(req.body ?? {}, false);
+  if (!parsed.ok) {
+    res.status(400).json({ error: parsed.error });
     return;
   }
-  const { data, error } = await supabaseAdmin.from('payment_accounts').insert(payload).select().single();
+  let { data, error } = await supabaseAdmin.from('payment_accounts').insert(parsed.value).select().single();
+  if (error && /method_type|logo_url|sort_order|account_number/.test(error.message)) {
+    // phase5 migration not applied yet: fall back to the original columns so saving still works.
+    const { method_type: _m, logo_url: _l, sort_order: _s, ...legacy } = parsed.value as Record<string, unknown>;
+    ({ data, error } = await supabaseAdmin.from('payment_accounts').insert({ ...legacy, account_number: legacy.account_number ?? legacy.iban ?? '' }).select().single());
+  }
   if (error || !data) {
-    res.status(500).json({ error: 'تعذر إضافة الحساب البنكي' });
+    console.error('[banks] create failed:', error?.message);
+    res.status(500).json({ error: 'تعذر إضافة وسيلة الدفع' });
     return;
   }
-  await audit(req, 'create', 'payment_account', data.id, { bank_name: payload.bank_name });
+  if (parsed.value!.is_default) await clearOtherDefaults(data.id);
+  await audit(req, 'create', 'payment_account', data.id, { method: parsed.value!.method_type, bank_name: parsed.value!.bank_name });
   res.status(201).json({ bank: data });
 });
 
 manageRouter.put('/banks/:id', requirePermission('manage_banks'), async (req: Request, res: Response) => {
-  const body = req.body ?? {};
-  const updates: Record<string, unknown> = {};
-  if (str(body.bank_name, 120)) updates.bank_name = str(body.bank_name, 120);
-  if (str(body.account_holder ?? body.account_name, 120)) updates.account_holder = str(body.account_holder ?? body.account_name, 120);
-  if (str(body.account_number, 64)) updates.account_number = str(body.account_number, 64);
-  if (str(body.iban, 64)) updates.iban = str(body.iban, 64);
-  if (str(body.instructions, 1000)) updates.instructions = str(body.instructions, 1000);
-  if (typeof body.is_active === 'boolean') updates.is_active = body.is_active;
-  if (typeof body.is_default === 'boolean') updates.is_default = body.is_default;
-
-  const { data, error } = await supabaseAdmin.from('payment_accounts').update(updates).eq('id', req.params.id).select().single();
-  if (error || !data) {
-    res.status(404).json({ error: 'لم يتم العثور على الحساب البنكي' });
+  if (!isUuid(req.params.id)) {
+    res.status(400).json({ error: 'معرف الحساب غير صالح' });
     return;
   }
-  await audit(req, 'update', 'payment_account', req.params.id, updates);
+  const parsed = parsePaymentAccount(req.body ?? {}, true);
+  if (!parsed.ok) {
+    res.status(400).json({ error: parsed.error });
+    return;
+  }
+  if (Object.keys(parsed.value!).length === 0) {
+    res.status(400).json({ error: 'لا توجد تغييرات' });
+    return;
+  }
+  const { data, error } = await supabaseAdmin.from('payment_accounts').update(parsed.value).eq('id', req.params.id).select().single();
+  if (error || !data) {
+    res.status(error ? 500 : 404).json({ error: error ? 'تعذر تحديث وسيلة الدفع' : 'لم يتم العثور على الحساب البنكي' });
+    return;
+  }
+  if (parsed.value!.is_default) await clearOtherDefaults(data.id);
+  await audit(req, 'update', 'payment_account', req.params.id, parsed.value);
   res.json({ bank: data });
 });
 

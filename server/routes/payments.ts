@@ -80,10 +80,28 @@ paymentsRouter.post('/submit', requireAuth, async (req: Request, res: Response) 
     return;
   }
 
+  // The method the customer chose (OnePay / LYPay / bank). Optional, but must be a real, active one.
+  let accountId: string | null = null;
+  let methodType: string | null = null;
+  if (b.payment_account_id) {
+    if (!isUuid(b.payment_account_id)) {
+      await supabaseAdmin.from('orders').update({ payment_status: order.payment_status }).eq('id', order.id);
+      res.status(400).json({ error: 'وسيلة الدفع غير صالحة' });
+      return;
+    }
+    const { data: account } = await supabaseAdmin
+      .from('payment_accounts').select('id, method_type').eq('id', b.payment_account_id).eq('is_active', true).maybeSingle();
+    if (!account) {
+      await supabaseAdmin.from('orders').update({ payment_status: order.payment_status }).eq('id', order.id);
+      res.status(400).json({ error: 'وسيلة الدفع المختارة غير متاحة حالياً' });
+      return;
+    }
+    accountId = account.id;
+    methodType = (account as any).method_type ?? 'bank_transfer';
+  }
+
   const rawDate = typeof b.transfer_date === 'string' ? b.transfer_date : '';
-  const { data: submission, error } = await supabaseAdmin
-    .from('payment_submissions')
-    .insert({
+  const submissionRow: Record<string, unknown> = {
       order_id: order.id,
       sender_name: senderName,
       sender_bank: typeof b.sender_bank === 'string' ? b.sender_bank.slice(0, 120) : null,
@@ -93,9 +111,13 @@ paymentsRouter.post('/submit', requireAuth, async (req: Request, res: Response) 
       receipt_storage_path: receiptPath,
       notes: typeof b.notes === 'string' ? b.notes.slice(0, 500) : null,
       status: 'submitted',
-    })
-    .select()
-    .single();
+  };
+  let { data: submission, error } = await supabaseAdmin
+    .from('payment_submissions').insert({ ...submissionRow, payment_account_id: accountId, payment_method: methodType }).select().single();
+  if (error && /payment_account_id|payment_method/.test(error.message)) {
+    // phase5 migration not applied yet: still record the proof.
+    ({ data: submission, error } = await supabaseAdmin.from('payment_submissions').insert(submissionRow).select().single());
+  }
   if (error || !submission) {
     // Roll the claim back so the customer can retry.
     await supabaseAdmin.from('orders').update({ payment_status: order.payment_status }).eq('id', order.id);

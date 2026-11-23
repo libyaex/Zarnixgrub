@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { methodMeta } from '../shared/paymentMethods';
 import { X, ZoomIn, ZoomOut, Check, Ban, Download, AlertTriangle } from 'lucide-react';
 import { Order } from '../types';
 
@@ -141,6 +142,10 @@ export const ReceiptViewerModal: React.FC<ReceiptViewerModalProps> = ({
               <div className="flex justify-between">
                 <span className="text-slate-400">اسم المرسل:</span>
                 <span className="font-bold text-white">{sub.sender_name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">وسيلة الدفع المختارة:</span>
+                <span className="font-bold text-emerald-300">{sub.payment_method ? methodMeta(sub.payment_method).label : 'غير محددة'}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">المصرف المرسل:</span>
