@@ -127,6 +127,12 @@ paymentsRouter.post('/submit', requireAuth, async (req: Request, res: Response) 
     return;
   }
 
+  const phone = typeof b.customer_phone === 'string' ? b.customer_phone.trim().slice(0, 40) : '';
+  if (phone && /^[0-9+\-\s()]{6,40}$/.test(phone)) {
+    // Contact number for matching the transfer: kept on the profile (never overwrites an existing one).
+    await supabaseAdmin.from('profiles').update({ phone }).eq('id', req.user!.id).is('phone', null);
+  }
+
   const { data: fresh } = await supabaseAdmin
     .from('orders').select('*, order_items(*), payment_submissions(*)').eq('id', order.id).single();
   await events.paymentSubmitted({ id: order.id, order_number: fresh?.order_number ?? '', total_amount: order.total_amount }, req.user!.full_name, req.user!.id);

@@ -132,8 +132,12 @@ export function parsePaymentAccount(input: PaymentAccountInput, partial: boolean
     v.account_holder = holder;
   }
   if (has('bank_name') || !partial) {
-    const bank = clip(b.bank_name, 120) || (type === 'onepay' || type === 'lypay' ? meta.latin : '');
-    if (!bank && type !== 'onepay' && type !== 'lypay') return { ok: false, error: 'اسم المصرف مطلوب' };
+    // OnePay accounts belong to a bank, so the bank name is mandatory there (and for plain transfers);
+    // for LYPay it is optional. It is never auto-filled with the service name.
+    const bank = clip(b.bank_name, 120);
+    if (!bank && (type === 'onepay' || type === 'bank_transfer' || type === 'other')) {
+      return { ok: false, error: type === 'onepay' ? 'اسم المصرف مطلوب لحساب ون باي' : 'اسم المصرف مطلوب' };
+    }
     v.bank_name = bank;
   }
   if (has('account_number') || !partial) v.account_number = clip(b.account_number, 40).replace(/\s+/g, ' ') || null;

@@ -59,7 +59,7 @@ export const paymentRejected = (userId: string, order: { id: string; order_numbe
     await notifyUsers([userId], {
       type: 'payment_rejected', title: 'تعذّر اعتماد إثبات الدفع',
       body: `${order.order_number}: ${reason}. يمكنك إرسال إثبات جديد.`,
-      link: '/portal/orders', data: { order_id: order.id },
+      link: `/pay/${order.id}`, data: { order_id: order.id },
     });
   });
 

@@ -6,8 +6,8 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { Order, DownloadEntitlement, ServiceTask } from '../types';
 import { apiFetch, apiJson, errorMessage } from '../lib/api';
-import { BankTransferModal } from '../components/BankTransferModal';
 import { OrderStatusTracker } from '../components/OrderStatusTracker';
+import { navigateTo } from '../lib/nav';
 
 interface CustomerPortalProps {
   initialTab?: string;
@@ -31,7 +31,6 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
 
   // Download state
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
-  const [payingOrder, setPayingOrder] = useState<Order | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
   const loadData = async () => {
@@ -365,7 +364,7 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
               <OrderStatusTracker
                 order={ord}
                 compact
-                onAction={(action) => (action === 'open_downloads' ? setActiveTab('downloads') : setPayingOrder(ord))}
+                onAction={(action) => (action === 'open_downloads' ? setActiveTab('downloads') : navigateTo(`/pay/${ord.id}`))}
               />
 
               {/* Items in order */}
@@ -386,15 +385,6 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
           ))}
           {orders.length === 0 && <p className="text-center text-sm text-slate-500 py-10">لا توجد طلبات بعد.</p>}
         </div>
-      )}
-
-      {payingOrder && (
-        <BankTransferModal
-          order={payingOrder}
-          isOpen
-          onClose={() => setPayingOrder(null)}
-          onSubmitted={() => { setPayingOrder(null); void loadData(); }}
-        />
       )}
 
       {/* Tab 4: Licenses (Section 11) */}

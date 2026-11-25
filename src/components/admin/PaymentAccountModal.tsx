@@ -92,12 +92,12 @@ export const PaymentAccountModal: React.FC<Props> = ({ account, onClose, onSaved
             <label className="block text-xs font-bold text-slate-300 mb-1.5">اسم صاحب الحساب (كما سيظهر للعميل) *</label>
             <input value={holder} onChange={(e) => setHolder(e.target.value)} className={inputCls} required />
           </div>
-          {bankLike && (
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-bold text-slate-300 mb-1.5">اسم المصرف *</label>
-              <input value={bankName} onChange={(e) => setBankName(e.target.value)} className={inputCls} required />
-            </div>
-          )}
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-bold text-slate-300 mb-1.5">
+              {type === 'onepay' ? 'اسم المصرف الذي يتبع له الحساب *' : type === 'lypay' ? 'اسم المصرف (اختياري)' : 'اسم المصرف *'}
+            </label>
+            <input value={bankName} onChange={(e) => setBankName(e.target.value)} className={inputCls} required={type !== 'lypay'} placeholder={type === 'onepay' ? 'مثال: مصرف الأمان' : ''} />
+          </div>
           {showAccount && (
             <div className={showIban ? '' : 'sm:col-span-2'}>
               <label className="block text-xs font-bold text-slate-300 mb-1.5">رقم الحساب {type === 'onepay' ? '*' : ''}</label>

@@ -5,7 +5,7 @@ import { parsePath, buildPath, isAppPath, type View } from '../src/lib/router.ts
 test('every view round-trips through buildPath -> parsePath', () => {
   const cases: Array<[View, Record<string, string>]> = [
     ['home', {}], ['products', {}], ['products', { filter: 'featured' }], ['product_details', { slug: 'نظام-محاسبة' }],
-    ['product_details', { slug: 'a b/c' }], ['cart', {}], ['checkout', {}], ['order_success', {}],
+    ['product_details', { slug: 'a b/c' }], ['cart', {}], ['checkout', {}], ['pay', { orderId: '3f2a9c1e-0000-4000-8000-000000000001' }],
     ['portal', { tab: 'orders' }], ['policies', { tab: 'refunds' }], ['notifications', {}], ['admin', {}], ['admin', { tab: 'payments' }], ['login', {}], ['login', { next: '/portal/orders' }],
   ];
   for (const [view, params] of cases) {
@@ -30,6 +30,12 @@ test('deep links used by notifications and the web manifest all resolve', () => 
     assert.notEqual(parsePath(u.pathname, u.search).view, 'home', link);
   }
   assert.equal(parsePath('/admin', '?tab=payments').params.tab, 'payments');
+});
+
+test('/pay/<orderId> is the payment page; legacy /orders/success lands on the orders list', () => {
+  assert.deepEqual(parsePath('/pay/abc'), { view: 'pay', params: { orderId: 'abc' } });
+  assert.equal(parsePath('/pay').view, 'portal');
+  assert.deepEqual(parsePath('/orders/success'), { view: 'portal', params: { tab: 'orders' } });
 });
 
 test('login ?next only accepts same-origin paths (no open redirect)', () => {

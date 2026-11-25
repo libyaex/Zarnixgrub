@@ -1746,6 +1746,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ initialTab, onBa
                       </div>
                       <div className="text-xs space-y-1.5 border-t border-slate-800 pt-3">
                         <p><span className="text-slate-500">المستفيد: </span><span className="text-slate-200 font-bold">{b.account_holder}</span></p>
+                        {b.bank_name && b.bank_name !== meta.latin && meta.type !== 'bank_transfer' && meta.type !== 'other' && (
+                          <p><span className="text-slate-500">المصرف: </span><span className="text-slate-200">{b.bank_name}</span></p>
+                        )}
                         {b.account_number && <p><span className="text-slate-500">رقم الحساب: </span><span className="font-mono text-white" dir="ltr">{b.account_number}</span></p>}
                         {b.iban && <p><span className="text-slate-500">IBAN: </span><span className="font-mono text-white break-all" dir="ltr">{formatIban(b.iban)}</span></p>}
                       </div>

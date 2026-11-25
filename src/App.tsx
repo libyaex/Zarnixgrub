@@ -16,7 +16,7 @@ import { ProductsPage } from './pages/ProductsPage';
 import { ProductDetailsPage } from './pages/ProductDetailsPage';
 import { CartPage } from './pages/CartPage';
 import { CheckoutPage } from './pages/CheckoutPage';
-import { OrderSuccessPage } from './pages/OrderSuccessPage';
+import { PaymentPage } from './pages/PaymentPage';
 import { CustomerPortal } from './pages/CustomerPortal';
 import { NotificationsPage } from './pages/NotificationsPage';
 import { Product, Order, SelectedOptionSnapshot, CartItem } from './types';
@@ -29,7 +29,7 @@ import { registerServiceWorker } from './lib/pwa';
 const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard').then((m) => ({ default: m.AdminDashboard })));
 const PoliciesPage = lazy(() => import('./pages/PoliciesPage').then((m) => ({ default: m.PoliciesPage })));
 
-const PRIVATE_VIEWS: View[] = ['portal', 'checkout', 'notifications', 'admin', 'order_success'];
+const PRIVATE_VIEWS: View[] = ['portal', 'checkout', 'pay', 'notifications', 'admin'];
 
 const Spinner: React.FC = () => (
   <div className="min-h-[50vh] flex items-center justify-center text-emerald-400">
@@ -71,7 +71,6 @@ function MainApp() {
   const [route, setRoute] = useState<Route>(() => parsePath(window.location.pathname, window.location.search));
   const [allProducts, setAllProducts] = useState<Product[]>([]);
   const [detail, setDetail] = useState<DetailState | null>(null);
-  const [lastPlacedOrder, setLastPlacedOrder] = useState<Order | null>(null);
   const [updateReg, setUpdateReg] = useState<ServiceWorkerRegistration | null>(null);
 
   // URL <-> view: back/forward, refresh and deep links all work.
@@ -121,18 +120,13 @@ function MainApp() {
   useEffect(() => {
     const suffix = String(site.seo_title_suffix || '');
     const titles: Partial<Record<View, string>> = {
-      products: 'جميع المنتجات', cart: 'سلة المشتريات', checkout: 'إتمام الطلب', order_success: 'تم استلام طلبك',
+      products: 'جميع المنتجات', cart: 'سلة المشتريات', checkout: 'إنشاء الطلب', pay: 'إتمام الدفع',
       portal: 'حسابي', policies: 'السياسات والشروط', notifications: 'الإشعارات', admin: 'لوحة التحكم', login: 'تسجيل الدخول',
       product_details: detail?.product?.name,
     };
     const t = route.view === 'home' ? String(site.seo_title || site.store_name) : titles[route.view] ? `${titles[route.view]}${suffix}` : String(site.store_name);
     document.title = unread > 0 ? `(${unread}) ${t}` : t;
   }, [route, site, detail, unread]);
-
-  // Order success needs the order we just created; after a refresh send the customer to their orders.
-  useEffect(() => {
-    if (route.view === 'order_success' && !lastPlacedOrder && isAuthenticated) navigateTo('/portal/orders', true);
-  }, [route.view, lastPlacedOrder, isAuthenticated]);
 
   // Signed-in users do not need the login page.
   useEffect(() => {
@@ -157,9 +151,9 @@ function MainApp() {
     navigateTo('/checkout');
   };
 
+  // The order exists now: go to its payment page (replace, so Back does not re-run the creation step).
   const handleOrderCreated = (order: Order) => {
-    setLastPlacedOrder(order);
-    navigateTo('/orders/success');
+    navigateTo(buildPath('pay', { orderId: order.id }), true);
   };
 
   if (loading) return <Splash />;
@@ -221,8 +215,13 @@ function MainApp() {
 
           {view === 'checkout' && <CheckoutPage directItem={directCheckoutItem} onOrderCreated={handleOrderCreated} onBackToCart={() => handleNavigate('cart')} />}
 
-          {view === 'order_success' && lastPlacedOrder && (
-            <OrderSuccessPage order={lastPlacedOrder} onGoToPortal={() => handleNavigate('portal')} onContinueShopping={() => handleNavigate('products')} />
+          {view === 'pay' && route.params.orderId && (
+            <PaymentPage
+              key={route.params.orderId}
+              orderId={route.params.orderId}
+              onGoToPortal={() => navigateTo('/portal/orders')}
+              onBrowseProducts={() => handleNavigate('products')}
+            />
           )}
 
           {view === 'portal' && (

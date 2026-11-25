@@ -96,7 +96,7 @@ export const PaymentAccountDetails: React.FC<{
       </div>
       <div className="px-4">
         <Row label="اسم صاحب الحساب (المستفيد)" value={account.account_holder} copyLabel="اسم المستفيد" />
-        {(meta.type === 'bank_transfer' || meta.type === 'other') && <Row label="المصرف" value={account.bank_name} />}
+        {account.bank_name && account.bank_name !== meta.latin && <Row label="اسم المصرف" value={account.bank_name} />}
         {showAccount && <Row label="رقم الحساب" value={String(account.account_number)} copyLabel="رقم الحساب" mono big />}
         {showIban && <Row label="رقم الآيبان (IBAN)" value={formatIban(String(account.iban))} copyLabel="الآيبان" mono big />}
         <Row label="المبلغ المطلوب تحويله بالضبط" value={`${amountText} ${currency}`.trim()} copyLabel="المبلغ" />

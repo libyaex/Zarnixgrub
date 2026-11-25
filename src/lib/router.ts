@@ -4,12 +4,12 @@
  * page could be linked to or indexed. Views map 1:1 to real URLs now.
  */
 export type View =
-  | 'home' | 'products' | 'product_details' | 'cart' | 'checkout' | 'order_success'
+  | 'home' | 'products' | 'product_details' | 'cart' | 'checkout' | 'pay'
   | 'portal' | 'policies' | 'notifications' | 'admin' | 'login';
 
 export interface Route {
   view: View;
-  params: { slug?: string; tab?: string; filter?: string; next?: string; [k: string]: string | undefined };
+  params: { slug?: string; tab?: string; filter?: string; next?: string; orderId?: string; [k: string]: string | undefined };
 }
 
 const PORTAL_TABS = ['downloads', 'orders', 'services', 'licenses', 'profile'];
@@ -27,8 +27,10 @@ export function parsePath(pathname: string, search = ''): Route {
       if (parts[1]) return { view: 'product_details', params: { slug: decode(parts[1]) } };
       return { view: 'products', params: q.get('filter') ? { filter: q.get('filter')! } : {} };
     case 'cart': return { view: 'cart', params: {} };
+    // /checkout is a transient "creating your order" step; the real payment page is /pay/<orderId>.
     case 'checkout': return { view: 'checkout', params: {} };
-    case 'orders': return { view: 'order_success', params: {} };
+    case 'pay': return parts[1] ? { view: 'pay', params: { orderId: decode(parts[1]) } } : { view: 'portal', params: { tab: 'orders' } };
+    case 'orders': return { view: 'portal', params: { tab: 'orders' } };
     case 'portal': {
       const tab = parts[1] && PORTAL_TABS.includes(parts[1]) ? parts[1] : 'downloads';
       return { view: 'portal', params: { tab } };
@@ -51,7 +53,7 @@ export function buildPath(view: View, params: Route['params'] = {}): string {
     case 'product_details': return params.slug ? `/products/${encodeURIComponent(params.slug)}` : '/products';
     case 'cart': return '/cart';
     case 'checkout': return '/checkout';
-    case 'order_success': return '/orders/success';
+    case 'pay': return params.orderId ? `/pay/${encodeURIComponent(params.orderId)}` : '/portal/orders';
     case 'portal': return `/portal/${params.tab && PORTAL_TABS.includes(params.tab) ? params.tab : 'downloads'}`;
     case 'policies': return `/policies/${params.tab && POLICY_TABS.includes(params.tab) ? params.tab : 'terms'}`;
     case 'notifications': return '/notifications';

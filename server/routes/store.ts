@@ -16,6 +16,7 @@ import { supabaseAdmin } from '../lib/supabaseAdmin.ts';
 import { requireAuth } from '../lib/auth.ts';
 import { evaluateCoupon, COUPON_MESSAGES, priceLine, missingRequiredOptions, round2 } from '../lib/pricing.ts';
 import { shapeProduct, shapeOrder, fetchAll } from '../lib/shape.ts';
+import { isUuid } from '../lib/validators.ts';
 import { loadSiteConfig } from '../lib/siteConfig.ts';
 import * as events from '../lib/events.ts';
 
@@ -274,6 +275,25 @@ storeRouter.get('/orders', requireAuth, async (req: Request, res: Response) => {
     return;
   }
   res.json((data ?? []).map((o) => shapeOrder(o)));
+});
+
+/** GET /api/orders/:id — authenticated: one of the caller's OWN orders (payment page, deep links). */
+storeRouter.get('/orders/:id', requireAuth, async (req: Request, res: Response) => {
+  if (!isUuid(req.params.id)) {
+    res.status(400).json({ error: 'معرف الطلب غير صالح' });
+    return;
+  }
+  const { data } = await supabaseAdmin
+    .from('orders')
+    .select('*, order_items(*), payment_submissions(*)')
+    .eq('id', req.params.id)
+    .eq('user_id', req.user!.id)
+    .maybeSingle();
+  if (!data) {
+    res.status(404).json({ error: 'لم يتم العثور على الطلب' });
+    return;
+  }
+  res.json(shapeOrder(data, { full_name: req.user!.full_name, email: req.user!.email }));
 });
 
 /**

@@ -459,19 +459,19 @@ test('payment methods: OnePay needs an account number, LYPay a valid IBAN; the I
   assert.equal(badIban.statusCode, 400);
   assert.equal(db.T('payment_accounts').length, 0);
 
-  const one = await call(manage, 'POST', '/banks', { user: manager(), body: { method_type: 'onepay', account_holder: 'نزار', account_number: '1020304055' } });
+  const one = await call(manage, 'POST', '/banks', { user: manager(), body: { method_type: 'onepay', account_holder: 'نزار', bank_name: 'مصرف الأمان', account_number: '1020304055' } });
   assert.equal(one.statusCode, 201);
   const ly = await call(manage, 'POST', '/banks', { user: manager(), body: { method_type: 'lypay', account_holder: 'نزار', iban: 'ly83 0020 4800 0020 1001 2036 1', is_default: true } });
   assert.equal(ly.statusCode, 201);
   assert.equal(db.T('payment_accounts').find((a) => a.method_type === 'lypay')!.iban, IBAN);
 
-  const denied = await call(manage, 'POST', '/banks', { user: staff(['manage_products'], 'product_manager'), body: { method_type: 'onepay', account_holder: 'x', account_number: '1' } });
+  const denied = await call(manage, 'POST', '/banks', { user: staff(['manage_products'], 'product_manager'), body: { method_type: 'onepay', account_holder: 'x', bank_name: 'm', account_number: '1' } });
   assert.equal(denied.statusCode, 403);
 });
 
 test('payment methods: only one default; editing validates only what changed', async () => {
   resetDb();
-  const a = await call(manage, 'POST', '/banks', { user: manager(), body: { method_type: 'onepay', account_holder: 'A', account_number: '1', is_default: true } });
+  const a = await call(manage, 'POST', '/banks', { user: manager(), body: { method_type: 'onepay', account_holder: 'A', bank_name: 'مصرف', account_number: '1', is_default: true } });
   const b = await call(manage, 'POST', '/banks', { user: manager(), body: { method_type: 'lypay', account_holder: 'B', iban: IBAN } });
   await call(manage, 'PUT', '/banks/:id', { user: manager(), params: { id: b.body.bank.id }, body: { is_default: true } });
   const defaults = db.T('payment_accounts').filter((x) => x.is_default);
@@ -512,4 +512,50 @@ test('storefront lists ALL products regardless of price or count (no 500-row cap
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.length, 1234);
   assert.ok(res.body.some((p: any) => p.base_price === 1000000), 'a million-dinar product is returned');
+});
+
+// ------------------------------------------------------------------ single payment page (/pay/<orderId>)
+test('payment page loads an order by id — only the owner can open it', async () => {
+  resetDb(paymentSeed());
+  const mine = await call(store, 'GET', '/orders/:id', { user: user(), params: { id: ORDER } });
+  assert.equal(mine.statusCode, 200);
+  assert.equal(mine.body.id, ORDER);
+  assert.equal(mine.body.total_amount, 320);
+  assert.ok(Array.isArray(mine.body.items));
+  const stranger = await call(store, 'GET', '/orders/:id', { user: user({ id: OTHER }), params: { id: ORDER } });
+  assert.equal(stranger.statusCode, 404, "another customer's order must not be readable");
+  const bad = await call(store, 'GET', '/orders/:id', { user: user(), params: { id: 'not-a-uuid' } });
+  assert.equal(bad.statusCode, 400);
+});
+
+test('the phone typed once on the payment page is saved to the profile, but never overwrites an existing one', async () => {
+  resetDb({ ...paymentSeed(), profiles: [{ id: CUSTOMER, role: 'customer', status: 'active', full_name: 'Ali', phone: null }] });
+  db.objects.add(`payment_receipts/${CUSTOMER}/receipt.png`);
+  const r1 = await call(payments, 'POST', '/submit', { user: user(), body: proof({ customer_phone: '0912345678' }) });
+  assert.equal(r1.statusCode, 201);
+  assert.equal(db.T('profiles')[0].phone, '0912345678');
+
+  // second order by the same customer with a different number: the saved one stays
+  db.T('orders')[0].payment_status = 'rejected';
+  const r2 = await call(payments, 'POST', '/submit', { user: user(), body: proof({ transaction_reference: 'REF-2', customer_phone: '0944444444' }) });
+  assert.equal(r2.statusCode, 201);
+  assert.equal(db.T('profiles')[0].phone, '0912345678');
+
+  resetDb({ ...paymentSeed(), profiles: [{ id: CUSTOMER, role: 'customer', status: 'active', phone: null }] });
+  db.objects.add(`payment_receipts/${CUSTOMER}/receipt.png`);
+  await call(payments, 'POST', '/submit', { user: user(), body: proof({ customer_phone: '<script>' }) });
+  assert.equal(db.T('profiles')[0].phone, null, 'junk is not stored');
+});
+
+test('a rejected proof notifies the customer with a link straight to the payment page', async () => {
+  resetDb({
+    ...reviewSeed(),
+    profiles: [{ id: CUSTOMER, role: 'customer', status: 'active' }],
+  });
+  const { invalidateSiteConfig } = await import('../server/lib/siteConfig.ts');
+  invalidateSiteConfig();
+  await call(payments, 'POST', '/review', { user: staff(['approve_payments']), body: { submission_id: SUB, decision: 'reject', rejection_reason: 'الإيصال غير واضح' } });
+  const n = db.T('notifications').find((x) => x.type === 'payment_rejected')!;
+  assert.equal(n.link, `/pay/${ORDER}`);
+  assert.ok(n.body.includes('الإيصال غير واضح'));
 });

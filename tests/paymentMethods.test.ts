@@ -29,14 +29,16 @@ test('OnePay needs an account number; LYPay needs a valid IBAN; labels come from
   assert.equal(methodMeta('nonsense').type, 'bank_transfer');
 
   assert.equal(parsePaymentAccount({ ...base, method_type: 'onepay' }, false).ok, false);
-  const one: any = parsePaymentAccount({ ...base, method_type: 'onepay', account_number: '1020 3040 55' }, false);
+  assert.equal(parsePaymentAccount({ ...base, method_type: 'onepay', account_number: '1020 3040 55' }, false).ok, false, 'OnePay needs the bank name too');
+  const one: any = parsePaymentAccount({ ...base, method_type: 'onepay', bank_name: 'مصرف الأمان', account_number: '1020 3040 55' }, false);
   assert.equal(one.ok, true);
-  assert.equal(one.value.bank_name, 'OnePay', 'name defaults to the service for OnePay/LYPay');
+  assert.equal(one.value.bank_name, 'مصرف الأمان', 'bank name is kept as typed, not replaced by "OnePay"');
   assert.equal(one.value.account_number, '1020 3040 55');
 
   assert.equal(parsePaymentAccount({ ...base, method_type: 'lypay', account_number: '123' }, false).ok, false, 'IBAN is mandatory for LYPay');
   const ly: any = parsePaymentAccount({ ...base, method_type: 'lypay', iban: 'ly83 0020 4800 0020 1001 2036 1' }, false);
   assert.equal(ly.ok, true);
+  assert.equal(ly.value.bank_name, '', 'bank name is optional for LYPay');
   assert.equal(ly.value.iban, IBAN, 'stored normalised');
   assert.equal(ly.value.account_number, null);
   assert.equal(parsePaymentAccount({ ...base, method_type: 'lypay', iban: 'LY00000000000000000000000' }, false).ok, false);
@@ -51,8 +53,8 @@ test('bank transfer needs a bank name and an identifier; holder is always requir
 });
 
 test('logo urls are validated; sort order clamps; partial updates touch only sent keys', () => {
-  assert.equal(parsePaymentAccount({ ...base, method_type: 'onepay', account_number: '1', logo_url: 'javascript:alert(1)' }, false).ok, false);
-  const ok: any = parsePaymentAccount({ ...base, method_type: 'onepay', account_number: '1', logo_url: 'https://x.test/l.png', sort_order: 5000 }, false);
+  assert.equal(parsePaymentAccount({ ...base, method_type: 'onepay', bank_name: 'مصرف', account_number: '1', logo_url: 'javascript:alert(1)' }, false).ok, false);
+  const ok: any = parsePaymentAccount({ ...base, method_type: 'onepay', bank_name: 'مصرف', account_number: '1', logo_url: 'https://x.test/l.png', sort_order: 5000 }, false);
   assert.equal(ok.value.logo_url, 'https://x.test/l.png');
   assert.equal(ok.value.sort_order, 999);
   const partial: any = parsePaymentAccount({ is_active: false }, true);

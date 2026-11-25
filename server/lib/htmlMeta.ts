@@ -16,7 +16,7 @@ export const jsonForScript = (v: unknown): string =>
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 
-export const PRIVATE_PATHS = ['/admin', '/portal', '/cart', '/checkout', '/orders', '/notifications', '/login'];
+export const PRIVATE_PATHS = ['/admin', '/portal', '/cart', '/checkout', '/pay', '/orders', '/notifications', '/login'];
 
 export function isPrivatePath(path: string): boolean {
   return PRIVATE_PATHS.some((p) => path === p || path.startsWith(p + '/'));
@@ -187,6 +187,7 @@ export function buildRobots(cfg: SiteConfig, origin: string): string {
     'Disallow: /portal',
     'Disallow: /cart',
     'Disallow: /checkout',
+    'Disallow: /pay',
     'Disallow: /orders',
     'Disallow: /notifications',
     `Sitemap: ${origin}/sitemap.xml`,
